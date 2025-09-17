@@ -1,0 +1,1 @@
+export { processTranslation } from './translate';

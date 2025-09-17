@@ -1,0 +1,333 @@
+// src/components/comparison-view.tsx - Update the handleRetranslate function
+
+import { useState } from 'react';
+import {
+  Download,
+  Copy,
+  ArrowRight,
+  Languages,
+  FileText,
+  Code,
+  Eye,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { toast } from 'sonner';
+import Editor from '@monaco-editor/react';
+import { getLanguageByCode, type Language } from '@/lib/constants/languages';
+import { TranslationTable } from '@/components/translation-table';
+import { useMutation } from 'convex/react'; // Add this import
+import { api } from '../../convex/_generated/api'; // Add this import
+import type { Id } from '../../convex/_generated/dataModel'; // Add this import
+
+interface ComparisonViewProps {
+  originalData: Record<string, any>;
+  translatedData: Record<string, any>;
+  onEdit: (key: string, value: string) => void;
+  sourceLanguage: string;
+  targetLanguage: string;
+  projectId?: string;
+  onTranslationUpdate?: (newTranslatedData: Record<string, any>) => void;
+}
+
+export function ComparisonView({
+  originalData,
+  translatedData,
+  onEdit,
+  sourceLanguage,
+  targetLanguage,
+  projectId,
+  onTranslationUpdate,
+}: ComparisonViewProps) {
+  const [viewMode, setViewMode] = useState<'side-by-side' | 'table'>('table');
+
+  // Add Convex mutation
+  const createTranslationTask = useMutation(
+    api.translations.createTranslationTask
+  );
+
+  const getLanguageInfo = (code: string): Language =>
+    getLanguageByCode(code) || { code, name: code.toUpperCase(), flag: '🌐' };
+
+  const sourceInfo = getLanguageInfo(sourceLanguage);
+  const targetInfo = getLanguageInfo(targetLanguage);
+
+  const downloadTranslation = () => {
+    const blob = new Blob([JSON.stringify(translatedData, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `translated_${targetLanguage}.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success('Translation downloaded');
+  };
+
+  const copyTranslation = async () => {
+    try {
+      await navigator.clipboard.writeText(
+        JSON.stringify(translatedData, null, 2)
+      );
+      toast.success('Translation copied to clipboard');
+    } catch {
+      toast.error('Failed to copy to clipboard');
+    }
+  };
+
+  // Updated handleRetranslate function
+  const handleRetranslate = async (keys: string[]): Promise<void> => {
+    if (!projectId) {
+      toast.error('Project ID is required for re-translation');
+      return;
+    }
+
+    try {
+      // Create a translation task first
+      const taskId = await createTranslationTask({
+        projectId: projectId as Id<'projects'>,
+        targetLanguage,
+        keys,
+      });
+
+      // Call the API with the taskId
+      const response = await fetch('/api/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          data: originalData,
+          projectId,
+          sourceLanguage,
+          targetLanguage,
+          selectedKeys: keys,
+          taskId, // Now we provide the required taskId
+        }),
+      });
+
+      const result = await response.json();
+
+      if (result.success) {
+        // Since we're using Inngest, we need to wait for the task to complete
+        // For now, just show a success message - the progress will be handled elsewhere
+        toast.success(
+          `Re-translation queued for ${keys.length} item(s). Check progress for updates.`
+        );
+
+        // Note: The actual translated data will come through the progress tracking system
+        // You might want to add a polling mechanism here or rely on the parent component
+        // to handle the progress updates
+      } else {
+        throw new Error(result.error || 'Re-translation failed');
+      }
+    } catch (error) {
+      console.error('Re-translation failed:', error);
+      throw error;
+    }
+  };
+
+  // Rest of the component remains the same...
+  const flattenJson = (obj: any, prefix = ''): Record<string, string> => {
+    const flattened: Record<string, string> = {};
+    Object.entries(obj).forEach(([key, value]) => {
+      const fullKey = prefix ? `${prefix}.${key}` : key;
+      if (
+        typeof value === 'object' &&
+        value !== null &&
+        !Array.isArray(value)
+      ) {
+        Object.assign(flattened, flattenJson(value, fullKey));
+      } else {
+        flattened[fullKey] = String(value);
+      }
+    });
+    return flattened;
+  };
+
+  const updateNestedValue = (obj: any, key: string, value: string) => {
+    const keys = key.split('.');
+    let current = obj;
+    for (let i = 0; i < keys.length - 1; i++) {
+      if (!(keys[i] in current)) current[keys[i]] = {};
+      current = current[keys[i]];
+    }
+    current[keys[keys.length - 1]] = value;
+  };
+
+  return (
+    <div className="space-y-4">
+      <Card className="p-4 bg-gradient-to-r from-card to-muted/30 border-border/50">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+              <div className="w-8 h-8 bg-gradient-to-br from-primary to-secondary rounded-lg flex items-center justify-center">
+                <Languages className="w-4 h-4 text-primary-foreground" />
+              </div>
+              <span className="font-heading font-bold text-foreground">
+                Translation Results
+              </span>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Badge
+                variant="outline"
+                className="flex items-center space-x-1 border-primary/30"
+              >
+                <span className="text-lg">{sourceInfo.flag}</span>
+                <span>{sourceInfo.name}</span>
+              </Badge>
+              <div className="w-6 h-6 rounded-full bg-gradient-to-r from-primary to-secondary flex items-center justify-center">
+                <ArrowRight className="w-3 h-3 text-primary-foreground" />
+              </div>
+              <Badge
+                variant="outline"
+                className="flex items-center space-x-1 border-secondary/30"
+              >
+                <span className="text-lg">{targetInfo.flag}</span>
+                <span>{targetInfo.name}</span>
+              </Badge>
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            <div className="flex border border-border rounded-lg p-1 bg-background">
+              <Button
+                variant={viewMode === 'table' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('table')}
+                className="h-8"
+              >
+                <FileText className="w-4 h-4 mr-1" />
+                Table
+              </Button>
+              <Button
+                variant={viewMode === 'side-by-side' ? 'default' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('side-by-side')}
+                className="h-8"
+              >
+                <Code className="w-4 h-4 mr-1" />
+                Code
+              </Button>
+            </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={copyTranslation}
+              className="shadow-sm hover:shadow-md transition-all duration-200"
+            >
+              <Copy className="w-4 h-4 mr-1" />
+              Copy
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={downloadTranslation}
+              className="shadow-sm hover:shadow-md transition-all duration-200"
+            >
+              <Download className="w-4 h-4 mr-1" />
+              Download
+            </Button>
+          </div>
+        </div>
+      </Card>
+
+      {viewMode === 'table' ? (
+        <TranslationTable
+          originalData={originalData}
+          translatedData={translatedData}
+          onEdit={onEdit}
+          onRetranslate={handleRetranslate}
+          sourceLanguage={sourceLanguage}
+          targetLanguage={targetLanguage}
+        />
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <Card className="overflow-hidden shadow-sm">
+            <div className="border-b p-3 bg-gradient-to-r from-muted/50 to-muted/30">
+              <div className="flex items-center space-x-2">
+                <span className="text-lg">{sourceInfo.flag}</span>
+                <span className="font-medium text-foreground">
+                  Original ({sourceInfo.name})
+                </span>
+                <Badge variant="secondary" className="text-xs">
+                  Read-only
+                </Badge>
+              </div>
+            </div>
+            <div className="h-[600px]">
+              <Editor
+                height="600px"
+                language="json"
+                theme="vs-light"
+                value={JSON.stringify(originalData, null, 2)}
+                options={{
+                  readOnly: true,
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  lineNumbers: 'on',
+                  scrollBeyondLastLine: false,
+                }}
+              />
+            </div>
+          </Card>
+
+          <Card className="overflow-hidden shadow-sm">
+            <div className="border-b p-3 bg-gradient-to-r from-primary/10 to-secondary/10">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center space-x-2">
+                  <span className="text-lg">{targetInfo.flag}</span>
+                  <span className="font-medium text-foreground">
+                    Translated ({targetInfo.name})
+                  </span>
+                  <Badge variant="default" className="text-xs">
+                    Editable
+                  </Badge>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setViewMode('table')}
+                  className="shadow-sm"
+                >
+                  <Eye className="w-4 h-4 mr-1" />
+                  Edit in Table
+                </Button>
+              </div>
+            </div>
+            <div className="h-[600px]">
+              <Editor
+                height="600px"
+                language="json"
+                theme="vs-light"
+                value={JSON.stringify(translatedData, null, 2)}
+                onChange={(value) => {
+                  if (value) {
+                    try {
+                      const parsed = JSON.parse(value);
+                      onTranslationUpdate?.(parsed);
+                    } catch {
+                      // ignore invalid JSON in editor
+                    }
+                  }
+                }}
+                options={{
+                  minimap: { enabled: false },
+                  fontSize: 13,
+                  lineNumbers: 'on',
+                  scrollBeyondLastLine: false,
+                  formatOnPaste: true,
+                  formatOnType: true,
+                }}
+              />
+            </div>
+          </Card>
+        </div>
+      )}
+    </div>
+  );
+}

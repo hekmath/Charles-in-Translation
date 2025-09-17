@@ -1,0 +1,453 @@
+'use client';
+
+import type React from 'react';
+import { useState, useEffect, useRef } from 'react';
+import Editor from '@monaco-editor/react';
+import { Card } from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import {
+  Code,
+  Eye,
+  CheckSquare,
+  Square,
+  RotateCcw,
+  Download,
+  Copy,
+  AlertCircle,
+  Minus,
+} from 'lucide-react';
+import { toast } from 'sonner';
+import type { editor } from 'monaco-editor';
+
+interface JsonEditorProps {
+  data: Record<string, any>;
+  onChange: (data: Record<string, any>) => void;
+  selectedKeys: string[];
+  onSelectionChange: (keys: string[]) => void;
+  language: string;
+}
+
+export function JsonEditor({
+  data,
+  onChange,
+  selectedKeys,
+  onSelectionChange,
+  language,
+}: JsonEditorProps) {
+  const [viewMode, setViewMode] = useState<'code' | 'tree'>('code');
+  const [jsonString, setJsonString] = useState('');
+  const [isValid, setIsValid] = useState(true);
+  const [allKeys, setAllKeys] = useState<string[]>([]);
+  const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
+  const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
+
+  // Extract all keys from nested JSON
+  const extractKeys = (obj: any, prefix = ''): string[] => {
+    const keys: string[] = [];
+
+    if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
+      Object.entries(obj).forEach(([key, value]) => {
+        const fullKey = prefix ? `${prefix}.${key}` : key;
+        keys.push(fullKey);
+
+        if (
+          typeof value === 'object' &&
+          value !== null &&
+          !Array.isArray(value)
+        ) {
+          keys.push(...extractKeys(value, fullKey));
+        }
+      });
+    }
+
+    return keys;
+  };
+
+  // Get all child keys for a given parent key
+  const getChildKeys = (parentKey: string): string[] => {
+    return allKeys.filter(
+      (key) => key.startsWith(parentKey + '.') && key !== parentKey
+    );
+  };
+
+  // Get direct child keys only (not grandchildren)
+  const getDirectChildKeys = (parentKey: string): string[] => {
+    const prefix = parentKey + '.';
+    return allKeys.filter((key) => {
+      if (!key.startsWith(prefix)) return false;
+      const remainder = key.substring(prefix.length);
+      return !remainder.includes('.'); // No further dots = direct child
+    });
+  };
+
+  // Get parent key for a given key
+  const getParentKey = (key: string): string | null => {
+    const lastDotIndex = key.lastIndexOf('.');
+    return lastDotIndex > 0 ? key.substring(0, lastDotIndex) : null;
+  };
+
+  // Check if a key has children
+  const hasChildren = (key: string): boolean => {
+    return allKeys.some((k) => k.startsWith(key + '.'));
+  };
+
+  // Get selection state for a key (selected, unselected, or partially selected)
+  const getSelectionState = (
+    key: string
+  ): 'selected' | 'unselected' | 'partial' => {
+    const isSelected = selectedKeys.includes(key);
+
+    if (!hasChildren(key)) {
+      return isSelected ? 'selected' : 'unselected';
+    }
+
+    const childKeys = getChildKeys(key);
+    const selectedChildKeys = childKeys.filter((childKey) =>
+      selectedKeys.includes(childKey)
+    );
+
+    if (selectedChildKeys.length === 0) {
+      return isSelected ? 'selected' : 'unselected';
+    } else if (selectedChildKeys.length === childKeys.length) {
+      return 'selected';
+    } else {
+      return 'partial';
+    }
+  };
+
+  useEffect(() => {
+    setJsonString(JSON.stringify(data, null, 2));
+    const keys = extractKeys(data);
+    setAllKeys(keys);
+  }, [data]);
+
+  const handleEditorChange = (value: string | undefined) => {
+    if (!value) return;
+
+    setJsonString(value);
+
+    try {
+      const parsedData = JSON.parse(value);
+      setIsValid(true);
+      onChange(parsedData);
+    } catch (error) {
+      setIsValid(false);
+    }
+  };
+
+  const toggleKeySelection = (key: string) => {
+    const currentState = getSelectionState(key);
+    let newSelection = [...selectedKeys];
+
+    if (currentState === 'selected') {
+      // Deselect this key and all its children
+      newSelection = newSelection.filter(
+        (selectedKey) =>
+          selectedKey !== key && !selectedKey.startsWith(key + '.')
+      );
+    } else {
+      // Select this key and all its children
+      const childKeys = getChildKeys(key);
+      const keysToAdd = [key, ...childKeys].filter(
+        (k) => !newSelection.includes(k)
+      );
+      newSelection = [...newSelection, ...keysToAdd];
+    }
+
+    // Update parent selection states
+    newSelection = updateParentSelections(newSelection);
+
+    onSelectionChange(newSelection);
+  };
+
+  // Update parent selections based on child selections
+  const updateParentSelections = (selection: string[]): string[] => {
+    let updatedSelection = [...selection];
+
+    // Get all parent keys that might need updating
+    const parentKeys = new Set<string>();
+    selection.forEach((key) => {
+      let parent = getParentKey(key);
+      while (parent) {
+        parentKeys.add(parent);
+        parent = getParentKey(parent);
+      }
+    });
+
+    // Check each parent key
+    parentKeys.forEach((parentKey) => {
+      const childKeys = getChildKeys(parentKey);
+      const selectedChildKeys = childKeys.filter((childKey) =>
+        updatedSelection.includes(childKey)
+      );
+
+      if (
+        selectedChildKeys.length === childKeys.length &&
+        childKeys.length > 0
+      ) {
+        // All children selected - select parent
+        if (!updatedSelection.includes(parentKey)) {
+          updatedSelection.push(parentKey);
+        }
+      } else {
+        // Not all children selected - deselect parent
+        updatedSelection = updatedSelection.filter((k) => k !== parentKey);
+      }
+    });
+
+    return updatedSelection;
+  };
+
+  const selectAll = () => {
+    onSelectionChange(allKeys);
+  };
+
+  const selectNone = () => {
+    onSelectionChange([]);
+  };
+
+  const copyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(jsonString);
+      toast.success('JSON copied to clipboard');
+    } catch (error) {
+      toast.error('Failed to copy to clipboard');
+    }
+  };
+
+  const downloadJson = () => {
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${language}_translations.json`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    toast.success('JSON file downloaded');
+  };
+
+  const formatJson = () => {
+    try {
+      const parsed = JSON.parse(jsonString);
+      const formatted = JSON.stringify(parsed, null, 2);
+      setJsonString(formatted);
+      onChange(parsed);
+      toast.success('JSON formatted');
+    } catch (error) {
+      toast.error('Invalid JSON - cannot format');
+    }
+  };
+
+  // Render tree view with proper hierarchical selection
+  const renderTreeItem = (
+    obj: any,
+    prefix = '',
+    level = 0
+  ): React.JSX.Element[] => {
+    if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
+      return [];
+    }
+
+    return Object.entries(obj).map(([key, value]) => {
+      const fullKey = prefix ? `${prefix}.${key}` : key;
+      const hasChildNodes =
+        typeof value === 'object' && value !== null && !Array.isArray(value);
+      const isExpanded = expandedKeys.has(fullKey);
+      const selectionState = getSelectionState(fullKey);
+
+      const SelectionIcon = () => {
+        switch (selectionState) {
+          case 'selected':
+            return <CheckSquare className="w-4 h-4 text-primary" />;
+          case 'partial':
+            return <Minus className="w-4 h-4 text-secondary" />;
+          default:
+            return <Square className="w-4 h-4 text-muted-foreground" />;
+        }
+      };
+
+      return (
+        <div key={fullKey} className="border-l border-border ml-4">
+          <div
+            className={`
+              flex items-center space-x-2 py-2 px-3 hover:bg-muted/50 rounded-r-lg transition-colors duration-200
+              ${
+                selectionState === 'selected'
+                  ? 'bg-primary/10 border-r-2 border-primary'
+                  : selectionState === 'partial'
+                  ? 'bg-secondary/10 border-r-2 border-secondary'
+                  : ''
+              }
+            `}
+            style={{ paddingLeft: `${level * 12}px` }}
+          >
+            {hasChildNodes && (
+              <button
+                onClick={() => {
+                  const newExpanded = new Set(expandedKeys);
+                  if (isExpanded) {
+                    newExpanded.delete(fullKey);
+                  } else {
+                    newExpanded.add(fullKey);
+                  }
+                  setExpandedKeys(newExpanded);
+                }}
+                className="text-muted-foreground hover:text-foreground transition-colors"
+              >
+                {isExpanded ? '▼' : '▶'}
+              </button>
+            )}
+
+            <button
+              onClick={() => toggleKeySelection(fullKey)}
+              className="flex items-center space-x-2 flex-1 text-left hover:bg-muted/30 rounded px-2 py-1 transition-colors"
+            >
+              <SelectionIcon />
+
+              <span className="font-mono text-sm font-medium text-foreground">
+                {key}
+              </span>
+            </button>
+
+            <div className="flex items-center space-x-2">
+              <span className="text-xs text-muted-foreground truncate max-w-[200px]">
+                {typeof value === 'string' ? `"${value}"` : String(value)}
+              </span>
+
+              <Badge variant="outline" className="text-xs">
+                {typeof value}
+              </Badge>
+
+              {hasChildNodes && (
+                <Badge variant="secondary" className="text-xs">
+                  {getDirectChildKeys(fullKey).length} items
+                </Badge>
+              )}
+            </div>
+          </div>
+
+          {hasChildNodes && isExpanded && (
+            <div className="ml-4">
+              {renderTreeItem(value, fullKey, level + 1)}
+            </div>
+          )}
+        </div>
+      );
+    });
+  };
+
+  return (
+    <Card className="overflow-hidden">
+      {/* Header */}
+      <div className="border-b border-border p-4 bg-muted/30">
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-4">
+            <div className="flex items-center space-x-2">
+              <div className="flex border border-border rounded-lg p-1 bg-background">
+                <Button
+                  variant={viewMode === 'code' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setViewMode('code')}
+                  className="h-8"
+                >
+                  <Code className="w-4 h-4 mr-1" />
+                  Code
+                </Button>
+                <Button
+                  variant={viewMode === 'tree' ? 'default' : 'ghost'}
+                  size="sm"
+                  onClick={() => setViewMode('tree')}
+                  className="h-8"
+                >
+                  <Eye className="w-4 h-4 mr-1" />
+                  Tree
+                </Button>
+              </div>
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Badge
+                variant={isValid ? 'default' : 'destructive'}
+                className="flex items-center space-x-1"
+              >
+                {!isValid && <AlertCircle className="w-3 h-3" />}
+                <span>{isValid ? 'Valid JSON' : 'Invalid JSON'}</span>
+              </Badge>
+              <Badge variant="outline">{allKeys.length} keys</Badge>
+              {selectedKeys.length > 0 && (
+                <Badge variant="secondary">
+                  {selectedKeys.length} selected
+                </Badge>
+              )}
+            </div>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            {viewMode === 'tree' && (
+              <>
+                <Button variant="outline" size="sm" onClick={selectAll}>
+                  Select All
+                </Button>
+                <Button variant="outline" size="sm" onClick={selectNone}>
+                  Clear
+                </Button>
+              </>
+            )}
+
+            <Button variant="outline" size="sm" onClick={copyToClipboard}>
+              <Copy className="w-4 h-4" />
+            </Button>
+
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={formatJson}
+              disabled={!isValid}
+            >
+              <RotateCcw className="w-4 h-4" />
+            </Button>
+
+            <Button variant="outline" size="sm" onClick={downloadJson}>
+              <Download className="w-4 h-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="min-h-[500px]">
+        {viewMode === 'code' ? (
+          <Editor
+            height="500px"
+            language="json"
+            theme="vs-light"
+            value={jsonString}
+            onChange={handleEditorChange}
+            options={{
+              minimap: { enabled: false },
+              fontSize: 14,
+              lineNumbers: 'on',
+              roundedSelection: false,
+              scrollBeyondLastLine: false,
+              automaticLayout: true,
+              formatOnPaste: true,
+              formatOnType: true,
+              tabSize: 2,
+              insertSpaces: true,
+            }}
+            onMount={(editor) => {
+              editorRef.current = editor;
+            }}
+          />
+        ) : (
+          <div className="p-4 max-h-[500px] overflow-y-auto">
+            <div className="space-y-1">{renderTreeItem(data)}</div>
+          </div>
+        )}
+      </div>
+    </Card>
+  );
+}
