@@ -1,11 +1,7 @@
-// src/app/api/translate/route.ts - Simplified to always use Inngest
 import { NextRequest, NextResponse } from 'next/server';
 import { getLanguageByCode } from '@/lib/constants/languages';
-import { ConvexHttpClient } from 'convex/browser';
-import { api } from '../../../../convex/_generated/api';
 import { inngest } from '@/inngest/client';
-
-const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+import { dbService } from '@/lib/db-service';
 
 export async function POST(request: NextRequest) {
   let body: any;
@@ -23,31 +19,82 @@ export async function POST(request: NextRequest) {
     // Validation
     if (!data || !targetLanguage) {
       return NextResponse.json(
-        { error: 'Missing required fields: data, targetLanguage' },
+        {
+          success: false,
+          error: 'Missing required fields: data, targetLanguage',
+        },
         { status: 400 }
       );
     }
 
+    // Parse and validate project ID
     const projectIdValue =
-      typeof projectId === 'string' ? projectId : projectId?._id ?? null;
-    if (!projectIdValue) {
+      typeof projectId === 'string'
+        ? parseInt(projectId)
+        : typeof projectId === 'number'
+        ? projectId
+        : null;
+
+    if (!projectIdValue || isNaN(projectIdValue)) {
       return NextResponse.json(
-        { error: 'Missing required field: projectId' },
+        {
+          success: false,
+          error: 'Missing or invalid project ID',
+        },
         { status: 400 }
       );
     }
 
-    if (!taskId) {
+    // Parse and validate task ID
+    const taskIdValue =
+      typeof taskId === 'string'
+        ? parseInt(taskId)
+        : typeof taskId === 'number'
+        ? taskId
+        : null;
+
+    if (!taskIdValue || isNaN(taskIdValue)) {
       return NextResponse.json(
-        { error: 'Missing required field: taskId' },
+        {
+          success: false,
+          error: 'Missing or invalid task ID',
+        },
         { status: 400 }
       );
     }
 
+    // Verify project exists
+    const project = await dbService.projects.getById(projectIdValue);
+    if (!project) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Project not found',
+        },
+        { status: 404 }
+      );
+    }
+
+    // Verify task exists
+    const task = await dbService.translationTasks.getById(taskIdValue);
+    if (!task) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Translation task not found',
+        },
+        { status: 404 }
+      );
+    }
+
+    // Validate target language
     const targetLanguageInfo = getLanguageByCode(targetLanguage);
     if (!targetLanguageInfo) {
       return NextResponse.json(
-        { error: `Unsupported target language: ${targetLanguage}` },
+        {
+          success: false,
+          error: `Unsupported target language: ${targetLanguage}`,
+        },
         { status: 400 }
       );
     }
@@ -108,12 +155,12 @@ export async function POST(request: NextRequest) {
 
     console.log(`Sending translation job to Inngest: ${totalKeys} keys`);
 
-    // Always send to Inngest for consistent processing
+    // Send to Inngest for background processing
     await inngest.send({
       name: 'translation/process',
       data: {
         projectId: projectIdValue,
-        taskId,
+        taskId: taskIdValue,
         data: dataToTranslate,
         sourceLanguage,
         targetLanguage,
@@ -123,8 +170,7 @@ export async function POST(request: NextRequest) {
 
     // Update task status to indicate it's been queued
     try {
-      await convex.mutation(api.translations.updateTranslationTask, {
-        taskId,
+      await dbService.translationTasks.update(taskIdValue, {
         status: 'processing',
       });
     } catch (error) {
@@ -136,7 +182,7 @@ export async function POST(request: NextRequest) {
       message: 'Translation job queued for background processing',
       usingInngest: true,
       totalKeys,
-      taskId,
+      taskId: taskIdValue,
       metadata: {
         sourceLanguage,
         targetLanguage,
@@ -147,14 +193,18 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error('Translation API error:', error);
 
-    // Try to update task status on error
+    // Try to update task status on error if we have the task ID
     if (body?.taskId) {
       try {
-        await convex.mutation(api.translations.updateTranslationTask, {
-          taskId: body.taskId,
-          status: 'failed',
-          error: error instanceof Error ? error.message : 'Unknown error',
-        });
+        const taskIdValue =
+          typeof body.taskId === 'string' ? parseInt(body.taskId) : body.taskId;
+
+        if (!isNaN(taskIdValue)) {
+          await dbService.translationTasks.update(taskIdValue, {
+            status: 'failed',
+            error: error instanceof Error ? error.message : 'Unknown error',
+          });
+        }
       } catch (updateError) {
         console.error('Failed to update task status to failed:', updateError);
       }

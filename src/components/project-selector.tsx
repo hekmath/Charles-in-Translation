@@ -8,6 +8,7 @@ import {
   Calendar,
   FileText,
   Trash2,
+  Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -19,38 +20,28 @@ import {
   DropdownMenuLabel,
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
-import { useMutation } from 'convex/react';
-import { api } from '../../convex/_generated/api';
-import { toast } from 'sonner';
-import type { Id } from '../../convex/_generated/dataModel';
-
-interface Project {
-  _id: Id<'projects'>;
-  name: string;
-  description?: string;
-  sourceLanguage: string;
-  originalData: Record<string, any>;
-  createdAt: number;
-  updatedAt: number;
-}
+import { useDeleteProject } from '@/lib/hooks/use-api';
+import type { Project } from '@/db/types';
 
 interface ProjectSelectorProps {
   projects: Project[];
-  currentProjectId: Id<'projects'> | null;
-  onProjectChange: (projectId: Id<'projects'> | null) => void;
+  currentProjectId: number | null;
+  onProjectChange: (projectId: number | null) => void;
+  isLoading?: boolean;
 }
 
 export function ProjectSelector({
   projects,
   currentProjectId,
   onProjectChange,
+  isLoading = false,
 }: ProjectSelectorProps) {
-  const deleteProject = useMutation(api.translations.deleteProject);
+  const deleteProjectMutation = useDeleteProject();
 
-  const currentProject = projects.find((p) => p._id === currentProjectId);
+  const currentProject = projects.find((p) => p.id === currentProjectId);
 
   const handleDeleteProject = async (
-    projectId: Id<'projects'>,
+    projectId: number,
     e: React.MouseEvent
   ) => {
     e.stopPropagation();
@@ -61,29 +52,28 @@ export function ProjectSelector({
       )
     ) {
       try {
-        await deleteProject({ projectId });
+        await deleteProjectMutation.mutateAsync(projectId);
 
         // If we're deleting the current project, clear selection
         if (projectId === currentProjectId) {
           onProjectChange(null);
         }
-
-        toast.success('Project deleted successfully');
       } catch (error) {
+        // Error handling is done in the mutation hook
         console.error('Failed to delete project:', error);
-        toast.error('Failed to delete project');
       }
     }
   };
 
-  const formatDate = (timestamp: number) => {
+  const formatDate = (dateString: string | Date) => {
+    const date = new Date(dateString);
     return new Intl.DateTimeFormat('en-US', {
       month: 'short',
       day: 'numeric',
       year: 'numeric',
       hour: '2-digit',
       minute: '2-digit',
-    }).format(new Date(timestamp));
+    }).format(date);
   };
 
   const getKeyCount = (data: Record<string, any>): number => {
@@ -111,9 +101,14 @@ export function ProjectSelector({
         <Button
           variant="outline"
           className="h-10 px-3 justify-between min-w-[200px] font-medium bg-transparent shadow-sm hover:shadow-md transition-all duration-200"
+          disabled={isLoading}
         >
           <div className="flex items-center space-x-2">
-            <FolderOpen className="w-4 h-4" />
+            {isLoading ? (
+              <Loader2 className="w-4 h-4 animate-spin" />
+            ) : (
+              <FolderOpen className="w-4 h-4" />
+            )}
             <span className="truncate">
               {currentProject ? currentProject.name : 'Select Project'}
             </span>
@@ -152,8 +147,19 @@ export function ProjectSelector({
 
         <DropdownMenuSeparator />
 
-        {/* Existing projects */}
-        {projects.length === 0 ? (
+        {/* Loading state */}
+        {isLoading && (
+          <div className="p-6 text-center text-muted-foreground">
+            <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center mx-auto mb-3">
+              <Loader2 className="w-6 h-6 animate-spin" />
+            </div>
+            <p className="font-medium mb-1">Loading projects...</p>
+            <p className="text-xs">Please wait a moment</p>
+          </div>
+        )}
+
+        {/* No projects state */}
+        {!isLoading && projects.length === 0 && (
           <div className="p-6 text-center text-muted-foreground">
             <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center mx-auto mb-3">
               <FileText className="w-6 h-6" />
@@ -161,19 +167,22 @@ export function ProjectSelector({
             <p className="font-medium mb-1">No projects yet</p>
             <p className="text-xs">Create your first project to get started</p>
           </div>
-        ) : (
+        )}
+
+        {/* Existing projects */}
+        {!isLoading &&
           projects.map((project) => (
             <DropdownMenuItem
-              key={project._id}
+              key={project.id}
               className={`
-                flex items-center space-x-3 p-3 cursor-pointer group rounded-lg m-1
-                ${
-                  currentProjectId === project._id
-                    ? 'bg-muted border border-border'
-                    : 'hover:bg-muted/50'
-                }
-              `}
-              onClick={() => onProjectChange(project._id)}
+              flex items-center space-x-3 p-3 cursor-pointer group rounded-lg m-1
+              ${
+                currentProjectId === project.id
+                  ? 'bg-muted border border-border'
+                  : 'hover:bg-muted/50'
+              }
+            `}
+              onClick={() => onProjectChange(project.id)}
             >
               <div className="w-8 h-8 bg-card border border-border rounded-lg flex items-center justify-center shadow-sm">
                 <FileText className="w-4 h-4 text-muted-foreground" />
@@ -211,13 +220,18 @@ export function ProjectSelector({
                 variant="ghost"
                 size="sm"
                 className="w-8 h-8 p-0 opacity-0 group-hover:opacity-100 hover:bg-destructive/10 hover:text-destructive transition-all duration-200"
-                onClick={(e) => handleDeleteProject(project._id, e)}
+                onClick={(e) => handleDeleteProject(project.id, e)}
+                disabled={deleteProjectMutation.isPending}
               >
-                <Trash2 className="w-3 h-3" />
+                {deleteProjectMutation.isPending &&
+                deleteProjectMutation.variables === project.id ? (
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3 h-3" />
+                )}
               </Button>
             </DropdownMenuItem>
-          ))
-        )}
+          ))}
       </DropdownMenuContent>
     </DropdownMenu>
   );

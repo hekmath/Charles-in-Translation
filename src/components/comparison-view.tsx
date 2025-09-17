@@ -1,4 +1,4 @@
-// src/components/comparison-view.tsx - Update the handleRetranslate function
+'use client';
 
 import { useState } from 'react';
 import {
@@ -17,24 +17,24 @@ import { toast } from 'sonner';
 import Editor from '@monaco-editor/react';
 import { getLanguageByCode, type Language } from '@/lib/constants/languages';
 import { TranslationTable } from '@/components/translation-table';
-import { useMutation } from 'convex/react'; // Add this import
-import { api } from '../../convex/_generated/api'; // Add this import
-import type { Id } from '../../convex/_generated/dataModel'; // Add this import
+import {
+  useCreateTranslationTask,
+  useTranslate,
+  useSaveTranslation,
+} from '@/lib/hooks/use-api';
 
 interface ComparisonViewProps {
   originalData: Record<string, any>;
   translatedData: Record<string, any>;
-  onEdit: (key: string, value: string) => void;
   sourceLanguage: string;
   targetLanguage: string;
-  projectId?: string;
+  projectId: number;
   onTranslationUpdate?: (newTranslatedData: Record<string, any>) => void;
 }
 
 export function ComparisonView({
   originalData,
   translatedData,
-  onEdit,
   sourceLanguage,
   targetLanguage,
   projectId,
@@ -42,10 +42,10 @@ export function ComparisonView({
 }: ComparisonViewProps) {
   const [viewMode, setViewMode] = useState<'side-by-side' | 'table'>('table');
 
-  // Add Convex mutation
-  const createTranslationTask = useMutation(
-    api.translations.createTranslationTask
-  );
+  // React Query mutations
+  const createTranslationTaskMutation = useCreateTranslationTask();
+  const translateMutation = useTranslate();
+  const saveTranslationMutation = useSaveTranslation();
 
   const getLanguageInfo = (code: string): Language =>
     getLanguageByCode(code) || { code, name: code.toUpperCase(), flag: '🌐' };
@@ -79,57 +79,74 @@ export function ComparisonView({
     }
   };
 
-  // Updated handleRetranslate function
+  // Updated handleRetranslate function to use React Query
   const handleRetranslate = async (keys: string[]): Promise<void> => {
-    if (!projectId) {
-      toast.error('Project ID is required for re-translation');
-      return;
-    }
-
     try {
       // Create a translation task first
-      const taskId = await createTranslationTask({
-        projectId: projectId as Id<'projects'>,
+      const task = await createTranslationTaskMutation.mutateAsync({
+        projectId,
         targetLanguage,
         keys,
       });
 
-      // Call the API with the taskId
-      const response = await fetch('/api/translate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          data: originalData,
-          projectId,
-          sourceLanguage,
-          targetLanguage,
-          selectedKeys: keys,
-          taskId, // Now we provide the required taskId
-        }),
+      // Call the translate API with the task ID
+      await translateMutation.mutateAsync({
+        data: originalData,
+        projectId,
+        sourceLanguage,
+        targetLanguage,
+        selectedKeys: keys,
+        taskId: task.id,
       });
 
-      const result = await response.json();
-
-      if (result.success) {
-        // Since we're using Inngest, we need to wait for the task to complete
-        // For now, just show a success message - the progress will be handled elsewhere
-        toast.success(
-          `Re-translation queued for ${keys.length} item(s). Check progress for updates.`
-        );
-
-        // Note: The actual translated data will come through the progress tracking system
-        // You might want to add a polling mechanism here or rely on the parent component
-        // to handle the progress updates
-      } else {
-        throw new Error(result.error || 'Re-translation failed');
-      }
+      toast.success(
+        `Re-translation queued for ${keys.length} item(s). Check progress for updates.`
+      );
     } catch (error) {
       console.error('Re-translation failed:', error);
+      // Error toast is handled by the mutation hooks
       throw error;
     }
   };
 
-  // Rest of the component remains the same...
+  // Handle individual translation edits
+  const handleEdit = async (key: string, value: string): Promise<void> => {
+    try {
+      // Get the original value for this key
+      const flatOriginal = flattenJson(originalData);
+      const originalValue = flatOriginal[key];
+
+      if (originalValue) {
+        // Save the translation to the database
+        await saveTranslationMutation.mutateAsync({
+          projectId,
+          key,
+          sourceText: originalValue,
+          translatedText: value,
+          sourceLanguage,
+          targetLanguage,
+        });
+
+        // Update the local translated data
+        if (translatedData && onTranslationUpdate) {
+          const updated = { ...translatedData };
+          const keys = key.split('.');
+          let current = updated;
+          for (let i = 0; i < keys.length - 1; i++) {
+            current = current[keys[i]];
+          }
+          current[keys[keys.length - 1]] = value;
+          onTranslationUpdate(updated);
+        }
+
+        toast.success('Translation updated successfully');
+      }
+    } catch (error) {
+      console.error('Failed to save edit:', error);
+      // Error toast is handled by the mutation hook
+    }
+  };
+
   const flattenJson = (obj: any, prefix = ''): Record<string, string> => {
     const flattened: Record<string, string> = {};
     Object.entries(obj).forEach(([key, value]) => {
@@ -145,16 +162,6 @@ export function ComparisonView({
       }
     });
     return flattened;
-  };
-
-  const updateNestedValue = (obj: any, key: string, value: string) => {
-    const keys = key.split('.');
-    let current = obj;
-    for (let i = 0; i < keys.length - 1; i++) {
-      if (!(keys[i] in current)) current[keys[i]] = {};
-      current = current[keys[i]];
-    }
-    current[keys[keys.length - 1]] = value;
   };
 
   return (
@@ -240,7 +247,7 @@ export function ComparisonView({
         <TranslationTable
           originalData={originalData}
           translatedData={translatedData}
-          onEdit={onEdit}
+          onEdit={handleEdit}
           onRetranslate={handleRetranslate}
           sourceLanguage={sourceLanguage}
           targetLanguage={targetLanguage}
@@ -306,10 +313,10 @@ export function ComparisonView({
                 theme="vs-light"
                 value={JSON.stringify(translatedData, null, 2)}
                 onChange={(value) => {
-                  if (value) {
+                  if (value && onTranslationUpdate) {
                     try {
                       const parsed = JSON.parse(value);
-                      onTranslationUpdate?.(parsed);
+                      onTranslationUpdate(parsed);
                     } catch {
                       // ignore invalid JSON in editor
                     }

@@ -1,8 +1,14 @@
 'use client';
 
-import convex from '@/convex/client';
-import { ConvexProvider } from 'convex/react';
+import { QueryClientProvider } from '@tanstack/react-query';
+import { ReactQueryDevtools } from '@tanstack/react-query-devtools';
+import { queryClient } from '@/lib/react-query-client';
 
 export function Providers({ children }: { children: React.ReactNode }) {
-  return <ConvexProvider client={convex}>{children}</ConvexProvider>;
+  return (
+    <QueryClientProvider client={queryClient}>
+      {children}
+      <ReactQueryDevtools initialIsOpen={false} position="left" />
+    </QueryClientProvider>
+  );
 }

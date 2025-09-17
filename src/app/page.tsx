@@ -1,8 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
-import { useMutation, useQuery } from 'convex/react';
-import { api } from '../../convex/_generated/api';
+import { useQueryClient } from '@tanstack/react-query';
 import { FileUpload } from '@/components/file-upload';
 import { LanguageSelector } from '@/components/language-selector';
 import { JsonEditor } from '@/components/json-editor';
@@ -11,7 +10,17 @@ import { ComparisonView } from '@/components/comparison-view';
 import { ProjectSelector } from '@/components/project-selector';
 import { Toaster } from 'sonner';
 import { toast } from 'sonner';
-import type { Id } from '../../convex/_generated/dataModel';
+import { queryKeys } from '@/lib/react-query-client';
+import {
+  useProjects,
+  useProject,
+  useCreateProject,
+  useTranslationTasks,
+  useCreateTranslationTask,
+  useCachedTranslations, // Re-added this hook
+  useTranslationProgress,
+  useTranslate,
+} from '@/lib/hooks/use-api';
 
 export default function Home() {
   // Local state
@@ -24,44 +33,41 @@ export default function Home() {
   > | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
-  const [currentProjectId, setCurrentProjectId] =
-    useState<Id<'projects'> | null>(null);
+  const [currentProjectId, setCurrentProjectId] = useState<number | null>(null);
   const [showProgress, setShowProgress] = useState(false);
   const [usingInngest, setUsingInngest] = useState(false);
 
   // Track active translation to prevent false completion notifications
   const activeTranslationRef = useRef<{
-    taskId?: Id<'translationTasks'>;
+    taskId?: number;
     targetLanguage?: string;
-    usingInngest?: boolean; // Add this property
+    usingInngest?: boolean;
   } | null>(null);
 
-  // Convex hooks
-  const projects = useQuery(api.translations.getProjects);
-  const currentProject = useQuery(
-    api.translations.getProject,
-    currentProjectId ? { projectId: currentProjectId } : 'skip'
-  );
-  const translationTasks = useQuery(
-    api.translations.getTranslationTasks,
-    currentProjectId ? { projectId: currentProjectId } : 'skip'
-  );
-  const cachedTranslations = useQuery(
-    api.translations.getCachedTranslations,
-    currentProjectId && targetLanguage
-      ? { projectId: currentProjectId, targetLanguage }
-      : 'skip'
+  // React Query hooks (replacing Convex)
+  const { data: projects = [], isLoading: projectsLoading } = useProjects();
+  const { data: currentProject } = useProject(currentProjectId);
+  const { data: translationTasks = [] } = useTranslationTasks(currentProjectId);
+  const { data: cachedTranslations = [] } = useCachedTranslations(
+    // Re-added this
+    currentProjectId,
+    targetLanguage || null
   );
 
-  // Convex mutations
-  const createProject = useMutation(api.translations.createProject);
-  const createTranslationTask = useMutation(
-    api.translations.createTranslationTask
+  // Translation progress with polling (replaces Convex real-time)
+  const { data: translationProgress } = useTranslationProgress(
+    currentProjectId,
+    targetLanguage || null,
+    showProgress && isTranslating
   );
-  const updateTranslationTask = useMutation(
-    api.translations.updateTranslationTask
-  );
-  const saveTranslation = useMutation(api.translations.saveTranslation);
+
+  // Mutations
+  const createProjectMutation = useCreateProject();
+  const createTranslationTaskMutation = useCreateTranslationTask();
+  const translateMutation = useTranslate();
+
+  // Query client for cache invalidation
+  const queryClient = useQueryClient();
 
   // Load project data when current project changes
   useEffect(() => {
@@ -76,137 +82,78 @@ export default function Home() {
     }
   }, [currentProject]);
 
-  // Check for completed translation tasks
+  // Clean completion detection using cache invalidation
   useEffect(() => {
-    if (translationTasks && activeTranslationRef.current) {
-      const { taskId, targetLanguage: activeTargetLang } =
-        activeTranslationRef.current;
+    if (translationProgress?.status === 'completed' && isTranslating) {
+      console.log('Translation completed! Refreshing data...');
 
-      const completedTask = translationTasks.find(
-        (task) =>
-          task._id === taskId &&
-          task.status === 'completed' &&
-          task.targetLanguage === activeTargetLang
-      );
-
-      if (completedTask && completedTask.translatedData) {
-        setTranslatedData(completedTask.translatedData);
-        setIsTranslating(false);
-        toast.success('Translation completed!');
-        activeTranslationRef.current = null;
-      }
-
-      const failedTask = translationTasks.find(
-        (task) =>
-          task._id === taskId &&
-          task.status === 'failed' &&
-          task.targetLanguage === activeTargetLang
-      );
-
-      if (failedTask) {
-        setIsTranslating(false);
-        toast.error(`Translation failed: ${failedTask.error}`);
-        activeTranslationRef.current = null;
+      // Force refresh the translation tasks to get the latest data
+      if (currentProjectId) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.translationTasks.list(currentProjectId),
+        });
       }
     }
-  }, [translationTasks]);
 
-  // Check for existing translations when target language changes
+    if (translationProgress?.status === 'failed' && isTranslating) {
+      console.log('Translation failed:', translationProgress.error);
+      setIsTranslating(false);
+      setShowProgress(false);
+      setUsingInngest(false);
+      activeTranslationRef.current = null;
+      toast.error(
+        `Translation failed: ${translationProgress.error || 'Unknown error'}`
+      );
+    }
+  }, [translationProgress, isTranslating, currentProjectId, queryClient]);
+
+  // Detect completion after cache refresh
+  useEffect(() => {
+    if (!isTranslating || !activeTranslationRef.current) return;
+
+    const { taskId } = activeTranslationRef.current;
+
+    // Look for the completed task in the refreshed data
+    const completedTask = translationTasks?.find(
+      (task) =>
+        task.id === taskId && task.status === 'completed' && task.translatedData
+    );
+
+    if (completedTask) {
+      console.log('Completed task found after cache refresh!', completedTask);
+      setTranslatedData(completedTask.translatedData);
+      setIsTranslating(false);
+      setShowProgress(false);
+      setUsingInngest(false);
+      activeTranslationRef.current = null;
+      toast.success('Translation completed!');
+    }
+  }, [translationTasks, isTranslating]);
+
+  // Auto-restore from cached translations (the missing piece!)
   useEffect(() => {
     if (
       cachedTranslations &&
       cachedTranslations.length > 0 &&
       jsonData &&
-      !isTranslating
+      !isTranslating &&
+      !translatedData // Only restore if we don't already have translated data
     ) {
+      console.log(
+        'Restoring translation from cache...',
+        cachedTranslations.length,
+        'cached translations'
+      );
       const translatedResult = rebuildTranslatedData(
         cachedTranslations,
         jsonData
       );
       if (translatedResult) {
         setTranslatedData(translatedResult);
+        console.log('Translation restored from cache!');
       }
     }
-  }, [cachedTranslations, jsonData, isTranslating]);
-
-  const handleFileUpload = async (data: Record<string, any>) => {
-    try {
-      const projectId = await createProject({
-        name: `Project ${new Date().toLocaleDateString()}`,
-        description: `Uploaded JSON with ${
-          Object.keys(data).length
-        } top-level keys`,
-        sourceLanguage,
-        originalData: data,
-      });
-
-      setCurrentProjectId(projectId);
-      setJsonData(data);
-      setTranslatedData(null);
-      setSelectedKeys([]);
-      activeTranslationRef.current = null;
-
-      toast.success('Project created successfully!');
-    } catch (error) {
-      console.error('Failed to create project:', error);
-      toast.error('Failed to create project');
-    }
-  };
-
-  const handleTranslation = async (keys?: string[]) => {
-    if (!jsonData || !targetLanguage || !currentProjectId) return;
-
-    setIsTranslating(true);
-
-    try {
-      // Create translation task
-      const taskId = await createTranslationTask({
-        projectId: currentProjectId,
-        targetLanguage,
-        keys: keys || selectedKeys || [],
-      });
-
-      // Call API route (now always uses Inngest)
-      const response = await fetch('/api/translate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          data: jsonData,
-          projectId: currentProjectId,
-          sourceLanguage,
-          targetLanguage,
-          selectedKeys: keys || selectedKeys,
-          taskId,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (result.success) {
-        // All translations now use Inngest - set up progress tracking
-        activeTranslationRef.current = {
-          taskId,
-          targetLanguage,
-          usingInngest: true,
-        };
-        setUsingInngest(true);
-        setShowProgress(true);
-
-        toast.success(
-          `Translation job queued! Processing ${result.totalKeys} keys in the background.`
-        );
-      } else {
-        throw new Error(result.error || 'Translation failed');
-      }
-    } catch (error) {
-      console.error('Translation failed:', error);
-      toast.error('Failed to start translation');
-      setIsTranslating(false);
-      setShowProgress(false);
-      setUsingInngest(false);
-      activeTranslationRef.current = null;
-    }
-  };
+  }, [cachedTranslations, jsonData, isTranslating, translatedData]);
 
   // Helper function to rebuild translated data from cached translations
   const rebuildTranslatedData = (
@@ -240,54 +187,68 @@ export default function Home() {
     return rebuild(originalData);
   };
 
-  // Helper function to flatten JSON for caching
-  const flattenJson = (obj: any, prefix = ''): Record<string, string> => {
-    const flattened: Record<string, string> = {};
-    Object.entries(obj).forEach(([key, value]) => {
-      const fullKey = prefix ? `${prefix}.${key}` : key;
-      if (
-        typeof value === 'object' &&
-        value !== null &&
-        !Array.isArray(value)
-      ) {
-        Object.assign(flattened, flattenJson(value, fullKey));
-      } else {
-        flattened[fullKey] = String(value);
-      }
-    });
-    return flattened;
+  const handleFileUpload = async (data: Record<string, any>) => {
+    try {
+      const result = await createProjectMutation.mutateAsync({
+        name: `Project ${new Date().toLocaleDateString()}`,
+        description: `Uploaded JSON with ${
+          Object.keys(data).length
+        } top-level keys`,
+        sourceLanguage,
+        originalData: data,
+      });
+
+      setCurrentProjectId(result.id);
+      setJsonData(data);
+      setTranslatedData(null);
+      setSelectedKeys([]);
+      activeTranslationRef.current = null;
+    } catch (error) {
+      console.error('Failed to create project:', error);
+      // Error handling is done in the mutation hook
+    }
   };
 
-  const handleEditTranslation = async (key: string, value: string) => {
-    if (!currentProjectId) return;
+  const handleTranslation = async (keys?: string[]) => {
+    if (!jsonData || !targetLanguage || !currentProjectId) return;
+
+    setIsTranslating(true);
+
     try {
-      const flatOriginal = flattenJson(jsonData || {});
-      const originalValue = flatOriginal[key];
+      // Create translation task
+      const task = await createTranslationTaskMutation.mutateAsync({
+        projectId: currentProjectId,
+        targetLanguage,
+        keys: keys || selectedKeys || [],
+      });
 
-      if (originalValue) {
-        await saveTranslation({
-          projectId: currentProjectId,
-          key,
-          sourceText: originalValue,
-          translatedText: value,
-          sourceLanguage,
-          targetLanguage,
-        });
-      }
+      // Call translate API (now always uses Inngest)
+      translateMutation.mutateAsync({
+        data: jsonData,
+        projectId: currentProjectId,
+        sourceLanguage,
+        targetLanguage,
+        selectedKeys: keys || selectedKeys,
+        taskId: task.id,
+      });
 
-      if (translatedData) {
-        const updated = { ...translatedData };
-        const keys = key.split('.');
-        let current = updated;
-        for (let i = 0; i < keys.length - 1; i++) {
-          current = current[keys[i]];
-        }
-        current[keys[keys.length - 1]] = value;
-        setTranslatedData(updated);
-      }
+      // All translations now use Inngest - set up progress tracking
+      activeTranslationRef.current = {
+        taskId: task.id,
+        targetLanguage,
+        usingInngest: true,
+      };
+      setUsingInngest(true);
+      setShowProgress(true);
+
+      toast.success(`Translation job queued! Processing in the background.`);
     } catch (error) {
-      console.error('Failed to save edit:', error);
-      toast.error('Failed to save edit');
+      console.error('Translation failed:', error);
+      setIsTranslating(false);
+      setShowProgress(false);
+      setUsingInngest(false);
+      activeTranslationRef.current = null;
+      // Error handling is done in the mutation hooks
     }
   };
 
@@ -298,6 +259,7 @@ export default function Home() {
     setCurrentProjectId(null);
     setShowProgress(false);
     setUsingInngest(false);
+    setIsTranslating(false); // Force reset translating state
     activeTranslationRef.current = null;
   };
 
@@ -329,14 +291,15 @@ export default function Home() {
 
             <div className="flex items-center space-x-6">
               <div className="hidden md:flex items-center space-x-2 text-sm text-muted-foreground">
-                <div className="w-2 h-2 bg-accent rounded-full animate-pulse"></div>
+                <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
                 <span>Ready to translate</span>
               </div>
 
               <ProjectSelector
-                projects={projects || []}
+                projects={projects}
                 currentProjectId={currentProjectId}
                 onProjectChange={setCurrentProjectId}
+                isLoading={projectsLoading}
               />
 
               <LanguageSelector
@@ -378,7 +341,10 @@ export default function Home() {
                   Upload your JSON files and let AI handle the heavy lifting.
                   Professional localization made simple.
                 </p>
-                <FileUpload onUpload={handleFileUpload} />
+                <FileUpload
+                  onUpload={handleFileUpload}
+                  isLoading={createProjectMutation.isPending}
+                />
               </div>
             </div>
 
@@ -492,6 +458,14 @@ export default function Home() {
                       <span className="font-medium">Translation Complete</span>
                     </div>
                   )}
+                  {showProgress && translationProgress && (
+                    <div className="flex items-center space-x-2 text-sm text-primary">
+                      <div className="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
+                      <span className="font-medium">
+                        {translationProgress.progressPercentage}% Complete
+                      </span>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -504,7 +478,7 @@ export default function Home() {
               onTranslateAll={() => handleTranslation([])}
               onTranslateSelected={() => handleTranslation(selectedKeys)}
               onNewFile={handleNewFile}
-              disabled={!targetLanguage}
+              disabled={!targetLanguage || createProjectMutation.isPending}
             />
 
             <div className="bg-card border border-border/50 rounded-2xl overflow-hidden shadow-sm">
@@ -518,10 +492,9 @@ export default function Home() {
                 />
               ) : (
                 <ComparisonView
-                  projectId={currentProjectId as string}
+                  projectId={currentProjectId!}
                   originalData={jsonData}
                   translatedData={translatedData}
-                  onEdit={handleEditTranslation}
                   sourceLanguage={sourceLanguage}
                   targetLanguage={targetLanguage}
                   onTranslationUpdate={setTranslatedData}

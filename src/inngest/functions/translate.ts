@@ -1,15 +1,9 @@
-// src/inngest/functions/translate.ts - Updated interface and type handling
-
 import { inngest } from '../client';
 import { generateObject } from 'ai';
 import { openai } from '@ai-sdk/openai';
 import { z } from 'zod';
 import { getLanguageByCode } from '@/lib/constants/languages';
-import { ConvexHttpClient } from 'convex/browser';
-import { api } from '../../../convex/_generated/api';
-import type { Id } from '../../../convex/_generated/dataModel';
-
-const convex = new ConvexHttpClient(process.env.NEXT_PUBLIC_CONVEX_URL!);
+import { dbService } from '@/lib/db-service';
 
 const translationChunkSchema = z.object({
   translations: z.array(
@@ -22,8 +16,8 @@ const translationChunkSchema = z.object({
 });
 
 interface TranslationEventData {
-  projectId: string;
-  taskId: string; // This comes as string from the event
+  projectId: number;
+  taskId: number;
   data: Record<string, any>;
   sourceLanguage: string;
   targetLanguage: string;
@@ -107,21 +101,16 @@ export const processTranslation = inngest.createFunction(
   async ({ event, step }) => {
     const {
       projectId,
-      taskId: taskIdString,
+      taskId,
       data,
       sourceLanguage,
       targetLanguage,
       selectedKeys,
     } = event.data as TranslationEventData;
 
-    // Convert string IDs to proper Convex Id types
-    const taskId = taskIdString as Id<'translationTasks'>;
-    const projectIdTyped = projectId as Id<'projects'>;
-
     // Step 1: Initialize and validate
     await step.run('initialize-translation', async () => {
-      await convex.mutation(api.translations.updateTranslationTask, {
-        taskId,
+      await dbService.translationTasks.update(taskId, {
         status: 'processing',
       });
 
@@ -171,9 +160,8 @@ export const processTranslation = inngest.createFunction(
 
       const chunks = chunkObject(dataToTranslate, 50);
 
-      // Update task with total progress info - now using the correct function name
-      await convex.mutation(api.translations.updateTranslationTaskProgress, {
-        taskId,
+      // Update task with total progress info
+      await dbService.translationTasks.updateProgress(taskId, {
         totalChunks: chunks.length,
         completedChunks: 0,
         currentChunk: 0,
@@ -191,8 +179,7 @@ export const processTranslation = inngest.createFunction(
         const chunk = chunks[i];
 
         // Update progress
-        await convex.mutation(api.translations.updateTranslationTaskProgress, {
-          taskId,
+        await dbService.translationTasks.updateProgress(taskId, {
           currentChunk: i + 1,
           completedChunks: i,
         });
@@ -250,13 +237,13 @@ Respond with translations maintaining the exact key names and properly handling 
             })
           );
 
-          // Save individual translations to Convex
+          // Save individual translations to database
           for (const translation of chunkTranslations) {
             const originalValue =
               chunk.find((item) => item.key === translation.key)?.value || '';
 
-            await convex.mutation(api.translations.saveTranslation, {
-              projectId: projectIdTyped, // Use typed projectId
+            await dbService.translations.save({
+              projectId,
               key: translation.key,
               sourceText: originalValue,
               translatedText: translation.value,
@@ -305,15 +292,13 @@ Respond with translations maintaining the exact key names and properly handling 
       }
 
       // Mark task as completed
-      await convex.mutation(api.translations.updateTranslationTask, {
-        taskId,
+      await dbService.translationTasks.update(taskId, {
         status: 'completed',
         translatedData: finalResult,
       });
 
       // Update final progress
-      await convex.mutation(api.translations.updateTranslationTaskProgress, {
-        taskId,
+      await dbService.translationTasks.updateProgress(taskId, {
         completedChunks: totalChunks,
         currentChunk: totalChunks,
       });
