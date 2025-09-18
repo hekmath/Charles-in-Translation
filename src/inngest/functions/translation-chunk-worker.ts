@@ -35,7 +35,7 @@ export const processTranslationChunk = inngest.createFunction(
     id: 'process-translation-chunk',
     name: 'Process Translation Chunk',
     concurrency: {
-      limit: 20, // Allow up to 20 chunks to process in parallel
+      limit: 10, // Allow up to 10 chunks to process in parallel
     },
     retries: 3, // Retry failed chunks up to 3 times
   },
@@ -98,7 +98,7 @@ CRITICAL RULES:
 
         // Make AI translation request
         const translationResult = await generateObject({
-          model: openai('gpt-4o-mini'),
+          model: openai('gpt-5-mini'),
           schema: translationChunkSchema,
           messages: [
             { role: 'system', content: systemPrompt },

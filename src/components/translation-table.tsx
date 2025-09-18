@@ -15,6 +15,7 @@ import {
   AlertCircle,
   FileText,
   Loader2,
+  RefreshCw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -23,10 +24,12 @@ interface TranslationTableProps {
   translatedData: Record<string, any>;
   onEdit: (key: string, value: string) => Promise<void>;
   onRetranslate: (keys: string[]) => Promise<void>;
+  onRefresh?: () => Promise<void>;
   sourceLanguage: string;
   targetLanguage: string;
   isEditLoading?: boolean;
   isRetranslateLoading?: boolean;
+  isRefreshLoading?: boolean;
 }
 
 interface FlattenedItem {
@@ -42,10 +45,12 @@ export function TranslationTable({
   translatedData,
   onEdit,
   onRetranslate,
+  onRefresh,
   sourceLanguage,
   targetLanguage,
   isEditLoading = false,
   isRetranslateLoading = false,
+  isRefreshLoading = false,
 }: TranslationTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -167,6 +172,17 @@ export function TranslationTable({
     }
   };
 
+  const handleRefresh = async () => {
+    if (!onRefresh || isRefreshLoading) return;
+
+    try {
+      await onRefresh();
+      toast.success('Translation data refreshed');
+    } catch (error) {
+      toast.error('Failed to refresh data');
+    }
+  };
+
   const toggleBulkSelection = (key: string) => {
     setSelectedForBulkRetranslation((prev) => {
       const newSet = new Set(prev);
@@ -267,15 +283,35 @@ export function TranslationTable({
             </div>
           </div>
 
-          {/* Search */}
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-            <Input
-              placeholder="Search translations..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10 w-64 bg-background border-border/50 focus:border-primary"
-            />
+          <div className="flex items-center space-x-3">
+            {/* Refresh Button */}
+            {onRefresh && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleRefresh}
+                disabled={isRefreshLoading}
+                className="shadow-sm hover:shadow-md transition-all duration-200"
+              >
+                {isRefreshLoading ? (
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                ) : (
+                  <RefreshCw className="w-4 h-4 mr-1" />
+                )}
+                Refresh
+              </Button>
+            )}
+
+            {/* Search */}
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+              <Input
+                placeholder="Search translations..."
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                className="pl-10 w-64 bg-background border-border/50 focus:border-primary"
+              />
+            </div>
           </div>
         </div>
 

@@ -12,9 +12,9 @@ import {
   type NewTranslation,
   type ChunkStatus,
 } from '@/db/types';
-import { eq, and, desc, asc, sum, count, sql } from 'drizzle-orm';
+import { eq, and, desc, asc, sum, count, sql, inArray } from 'drizzle-orm';
 
-// Projects Service (unchanged)
+// Projects Service with fixed delete method
 export class ProjectsService {
   static async create(data: Omit<NewProject, 'createdAt' | 'updatedAt'>) {
     const [project] = await db
@@ -43,28 +43,46 @@ export class ProjectsService {
   }
 
   static async delete(id: number) {
-    // Delete in order: chunks -> translations -> tasks -> project
-    await db
-      .delete(translationChunks)
-      .where(
-        eq(
-          translationChunks.taskId,
-          db
-            .select({ id: translationTasks.id })
-            .from(translationTasks)
-            .where(eq(translationTasks.projectId, id))
-        )
+    try {
+      // First, get all translation task IDs for this project
+      const projectTasks = await db
+        .select({ id: translationTasks.id })
+        .from(translationTasks)
+        .where(eq(translationTasks.projectId, id));
+
+      const taskIds = projectTasks.map((task) => task.id);
+
+      // Delete in proper order to respect foreign key constraints
+      if (taskIds.length > 0) {
+        // Delete translation chunks for all tasks in this project
+        await db
+          .delete(translationChunks)
+          .where(inArray(translationChunks.taskId, taskIds));
+      }
+
+      // Delete translations for this project
+      await db.delete(translations).where(eq(translations.projectId, id));
+
+      // Delete translation tasks for this project
+      await db
+        .delete(translationTasks)
+        .where(eq(translationTasks.projectId, id));
+
+      // Finally, delete the project itself
+      const [deletedProject] = await db
+        .delete(projects)
+        .where(eq(projects.id, id))
+        .returning();
+
+      return deletedProject;
+    } catch (error) {
+      console.error('Error deleting project:', error);
+      throw new Error(
+        `Failed to delete project: ${
+          error instanceof Error ? error.message : 'Unknown error'
+        }`
       );
-
-    await db.delete(translations).where(eq(translations.projectId, id));
-    await db.delete(translationTasks).where(eq(translationTasks.projectId, id));
-
-    const [deletedProject] = await db
-      .delete(projects)
-      .where(eq(projects.id, id))
-      .returning();
-
-    return deletedProject;
+    }
   }
 }
 

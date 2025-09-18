@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   Download,
   Copy,
@@ -17,6 +18,7 @@ import { toast } from 'sonner';
 import Editor from '@monaco-editor/react';
 import { getLanguageByCode, type Language } from '@/lib/constants/languages';
 import { TranslationTable } from '@/components/translation-table';
+import { queryKeys } from '@/lib/react-query-client';
 import {
   useSaveTranslation,
   useRetranslate, // New hook for retranslation
@@ -40,6 +42,10 @@ export function ComparisonView({
   onTranslationUpdate,
 }: ComparisonViewProps) {
   const [viewMode, setViewMode] = useState<'side-by-side' | 'table'>('table');
+  const [isRefreshLoading, setIsRefreshLoading] = useState(false);
+
+  // React Query client for cache invalidation
+  const queryClient = useQueryClient();
 
   // React Query mutations with proper cache invalidation
   const saveTranslationMutation = useSaveTranslation();
@@ -75,6 +81,89 @@ export function ComparisonView({
     } catch {
       toast.error('Failed to copy to clipboard');
     }
+  };
+
+  // Enhanced refresh function that invalidates all relevant queries
+  const handleRefresh = async (): Promise<void> => {
+    setIsRefreshLoading(true);
+
+    try {
+      // Invalidate all relevant queries for this project and target language
+      const queries = [
+        queryKeys.translations.list(projectId, targetLanguage),
+        queryKeys.translationTasks.list(projectId),
+        queryKeys.translationProgress.detail(projectId, targetLanguage),
+        queryKeys.projects.detail(projectId),
+      ];
+
+      // Invalidate all queries simultaneously
+      await Promise.all(
+        queries.map((queryKey) => queryClient.invalidateQueries({ queryKey }))
+      );
+
+      // Force refetch to ensure fresh data and get the result
+      const freshTranslationsQuery = await queryClient.refetchQueries({
+        queryKey: queryKeys.translations.list(projectId, targetLanguage),
+      });
+
+      // Get the fresh translations data
+      const freshTranslations = queryClient.getQueryData(
+        queryKeys.translations.list(projectId, targetLanguage)
+      ) as Array<{ key: string; translatedText: string }> | undefined;
+
+      // If we have fresh translations and the callback exists, rebuild and update the translated data
+      if (freshTranslations && onTranslationUpdate && originalData) {
+        const rebuiltTranslatedData = rebuildTranslatedData(
+          freshTranslations,
+          originalData
+        );
+        if (rebuiltTranslatedData) {
+          onTranslationUpdate(rebuiltTranslatedData);
+        }
+      }
+
+      // Also refetch the project data
+      await queryClient.refetchQueries({
+        queryKey: queryKeys.projects.detail(projectId),
+      });
+    } catch (error) {
+      console.error('Failed to refresh data:', error);
+      throw error; // Re-throw so the component can handle the error
+    } finally {
+      setIsRefreshLoading(false);
+    }
+  };
+
+  // Helper function to rebuild translated data from cached translations
+  const rebuildTranslatedData = (
+    translations: Array<{ key: string; translatedText: string }>,
+    originalData: Record<string, any>
+  ): Record<string, any> | null => {
+    const translatedMap = new Map(
+      translations.map((t) => [t.key, t.translatedText])
+    );
+
+    const rebuild = (obj: any, prefix = ''): any => {
+      if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
+        return obj;
+      }
+      const result: any = {};
+      for (const [key, value] of Object.entries(obj)) {
+        const fullKey = prefix ? `${prefix}.${key}` : key;
+        if (
+          typeof value === 'object' &&
+          value !== null &&
+          !Array.isArray(value)
+        ) {
+          result[key] = rebuild(value, fullKey);
+        } else {
+          result[key] = translatedMap.get(fullKey) || value;
+        }
+      }
+      return result;
+    };
+
+    return rebuild(originalData);
   };
 
   // Enhanced retranslate function with proper cache invalidation
@@ -196,11 +285,14 @@ export function ComparisonView({
 
             {/* Show loading states for mutations */}
             {(saveTranslationMutation.isPending ||
-              retranslateMutation.isPending) && (
+              retranslateMutation.isPending ||
+              isRefreshLoading) && (
               <Badge variant="secondary" className="animate-pulse">
                 {saveTranslationMutation.isPending
                   ? 'Saving...'
-                  : 'Retranslating...'}
+                  : retranslateMutation.isPending
+                  ? 'Retranslating...'
+                  : 'Refreshing...'}
               </Badge>
             )}
           </div>
@@ -255,11 +347,13 @@ export function ComparisonView({
           translatedData={translatedData}
           onEdit={handleEdit}
           onRetranslate={handleRetranslate}
+          onRefresh={handleRefresh}
           sourceLanguage={sourceLanguage}
           targetLanguage={targetLanguage}
           // Pass loading states to show pending operations
           isEditLoading={saveTranslationMutation.isPending}
           isRetranslateLoading={retranslateMutation.isPending}
+          isRefreshLoading={isRefreshLoading}
         />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -304,12 +398,14 @@ export function ComparisonView({
                     Editable
                   </Badge>
                   {/* Show mutation status */}
-                  {saveTranslationMutation.isPending && (
+                  {(saveTranslationMutation.isPending || isRefreshLoading) && (
                     <Badge
                       variant="secondary"
                       className="text-xs animate-pulse"
                     >
-                      Saving...
+                      {saveTranslationMutation.isPending
+                        ? 'Saving...'
+                        : 'Refreshing...'}
                     </Badge>
                   )}
                 </div>

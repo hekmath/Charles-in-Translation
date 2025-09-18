@@ -6,7 +6,7 @@ import type { TranslationCoordinatorEventData, ChunkData } from '@/db/types';
 
 function chunkObject(
   obj: Record<string, any>,
-  chunkSize: number = 25 // Reduced from 50 to 25 for better reliability
+  chunkSize: number = 15 // Reduced from 50 to 25 for better reliability
 ): Array<Array<ChunkData>> {
   const flattenObject = (obj: any, prefix = ''): Array<ChunkData> => {
     const items: Array<ChunkData> = [];
@@ -38,7 +38,7 @@ export const coordinateTranslation = inngest.createFunction(
     id: 'coordinate-translation',
     name: 'Coordinate Translation Job',
     concurrency: {
-      limit: 5, // Limit concurrent coordinators
+      limit: 3, // Limit concurrent coordinators
     },
     retries: 2,
   },
