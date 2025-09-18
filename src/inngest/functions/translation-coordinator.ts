@@ -1,7 +1,6 @@
 // translation-coordinator.ts - Main orchestrator function
 import { inngest } from '../client';
 import { dbService } from '@/lib/db-service';
-import { getLanguageByCode } from '@/lib/constants/languages';
 import type { TranslationCoordinatorEventData, ChunkData } from '@/db/types';
 
 function chunkObject(

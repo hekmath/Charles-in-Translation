@@ -39,29 +39,47 @@ export function JsonEditor({
   const [jsonString, setJsonString] = useState('');
   const [isValid, setIsValid] = useState(true);
   const [allKeys, setAllKeys] = useState<string[]>([]);
+  const [translatableKeys, setTranslatableKeys] = useState<string[]>([]);
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
   // Extract all keys from nested JSON
-  const extractKeys = (obj: any, prefix = ''): string[] => {
-    const keys: string[] = [];
+  const extractKeys = (
+    obj: any,
+    prefix = ''
+  ): { allKeys: string[]; translatableKeys: string[] } => {
+    const allKeys: string[] = [];
+    const translatableKeys: string[] = [];
 
     if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
       Object.entries(obj).forEach(([key, value]) => {
         const fullKey = prefix ? `${prefix}.${key}` : key;
-        keys.push(fullKey);
+        allKeys.push(fullKey);
+
+        // Count all leaf values (strings, numbers, booleans, null, arrays) - matches backend logic
+        if (
+          !(
+            typeof value === 'object' &&
+            value !== null &&
+            !Array.isArray(value)
+          )
+        ) {
+          translatableKeys.push(fullKey);
+        }
 
         if (
           typeof value === 'object' &&
           value !== null &&
           !Array.isArray(value)
         ) {
-          keys.push(...extractKeys(value, fullKey));
+          const nested = extractKeys(value, fullKey);
+          allKeys.push(...nested.allKeys);
+          translatableKeys.push(...nested.translatableKeys);
         }
       });
     }
 
-    return keys;
+    return { allKeys, translatableKeys };
   };
 
   // Get all child keys for a given parent key
@@ -118,8 +136,12 @@ export function JsonEditor({
 
   useEffect(() => {
     setJsonString(JSON.stringify(data, null, 2));
-    const keys = extractKeys(data);
-    setAllKeys(keys);
+    const {
+      allKeys: extractedAllKeys,
+      translatableKeys: extractedTranslatableKeys,
+    } = extractKeys(data);
+    setAllKeys(extractedAllKeys);
+    setTranslatableKeys(extractedTranslatableKeys);
   }, [data]);
 
   const handleEditorChange = (value: string | undefined) => {
@@ -203,6 +225,10 @@ export function JsonEditor({
     onSelectionChange(allKeys);
   };
 
+  const selectAllTranslatable = () => {
+    onSelectionChange(translatableKeys);
+  };
+
   const selectNone = () => {
     onSelectionChange([]);
   };
@@ -257,6 +283,7 @@ export function JsonEditor({
         typeof value === 'object' && value !== null && !Array.isArray(value);
       const isExpanded = expandedKeys.has(fullKey);
       const selectionState = getSelectionState(fullKey);
+      const isTranslatable = typeof value === 'string' && value.trim() !== '';
 
       const SelectionIcon = () => {
         switch (selectionState) {
@@ -281,6 +308,7 @@ export function JsonEditor({
                   ? 'bg-secondary/10 border-r-2 border-secondary'
                   : ''
               }
+              ${isTranslatable ? 'bg-green-50 dark:bg-green-950/10' : ''}
             `}
             style={{ paddingLeft: `${level * 12}px` }}
           >
@@ -320,6 +348,15 @@ export function JsonEditor({
               <Badge variant="outline" className="text-xs">
                 {typeof value}
               </Badge>
+
+              {isTranslatable && (
+                <Badge
+                  variant="default"
+                  className="text-xs bg-green-600 text-white"
+                >
+                  translatable
+                </Badge>
+              )}
 
               {hasChildNodes && (
                 <Badge variant="secondary" className="text-xs">
@@ -376,7 +413,19 @@ export function JsonEditor({
                 {!isValid && <AlertCircle className="w-3 h-3" />}
                 <span>{isValid ? 'Valid JSON' : 'Invalid JSON'}</span>
               </Badge>
-              <Badge variant="outline">{allKeys.length} keys</Badge>
+              <Badge
+                variant="outline"
+                title="Total keys including objects, numbers, booleans"
+              >
+                {allKeys.length} total keys
+              </Badge>
+              <Badge
+                variant="default"
+                className="bg-green-600"
+                title="Only string values that can be translated"
+              >
+                {translatableKeys.length} translatable
+              </Badge>
               {selectedKeys.length > 0 && (
                 <Badge variant="secondary">
                   {selectedKeys.length} selected
@@ -388,6 +437,13 @@ export function JsonEditor({
           <div className="flex items-center space-x-2">
             {viewMode === 'tree' && (
               <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={selectAllTranslatable}
+                >
+                  Select Translatable
+                </Button>
                 <Button variant="outline" size="sm" onClick={selectAll}>
                   Select All
                 </Button>
@@ -444,6 +500,26 @@ export function JsonEditor({
           />
         ) : (
           <div className="p-4 max-h-[500px] overflow-y-auto">
+            <div className="mb-4 p-3 bg-muted/50 rounded-lg">
+              <div className="text-sm text-muted-foreground">
+                <strong>Key Types:</strong>
+                <div className="mt-2 space-y-1">
+                  <div className="flex items-center space-x-2">
+                    <div className="w-4 h-4 bg-green-100 dark:bg-green-950/30 border border-green-300 rounded"></div>
+                    <span>
+                      Translatable strings ({translatableKeys.length})
+                    </span>
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <div className="w-4 h-4 bg-muted border border-border rounded"></div>
+                    <span>
+                      Objects, numbers, booleans (
+                      {allKeys.length - translatableKeys.length})
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
             <div className="space-y-1">{renderTreeItem(data)}</div>
           </div>
         )}

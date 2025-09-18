@@ -35,7 +35,7 @@ export const processTranslationChunk = inngest.createFunction(
     id: 'process-translation-chunk',
     name: 'Process Translation Chunk',
     concurrency: {
-      limit: 10, // Allow up to 10 chunks to process in parallel
+      limit: 15, // Allow up to 15 chunks to process in parallel
     },
     retries: 3, // Retry failed chunks up to 3 times
   },

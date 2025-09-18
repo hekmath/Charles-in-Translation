@@ -7,6 +7,13 @@ import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Textarea } from '@/components/ui/textarea';
 import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
+import {
   Search,
   Edit3,
   Check,
@@ -16,6 +23,13 @@ import {
   FileText,
   Loader2,
   RefreshCw,
+  ChevronLeft,
+  ChevronRight,
+  ChevronsLeft,
+  ChevronsRight,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -36,9 +50,13 @@ interface FlattenedItem {
   key: string;
   original: string;
   translated: string;
+  status: 'missing' | 'untranslated' | 'translated';
   isEditing?: boolean;
   editValue?: string;
 }
+
+type SortField = 'key' | 'original' | 'translated' | 'status';
+type SortDirection = 'asc' | 'desc';
 
 export function TranslationTable({
   originalData,
@@ -60,6 +78,19 @@ export function TranslationTable({
   );
   const [selectedForBulkRetranslation, setSelectedForBulkRetranslation] =
     useState<Set<string>>(new Set());
+
+  // Pagination state
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+
+  // Sorting state
+  const [sortField, setSortField] = useState<SortField>('status');
+  const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
+
+  // Status filter
+  const [statusFilter, setStatusFilter] = useState<
+    'all' | 'missing' | 'untranslated' | 'translated'
+  >('all');
 
   // Flatten nested objects for table display
   const flattenedData = useMemo(() => {
@@ -83,39 +114,144 @@ export function TranslationTable({
     const originalFlat = flattenObject(originalData);
     const translatedFlat = flattenObject(translatedData);
 
-    const items: FlattenedItem[] = Object.keys(originalFlat).map((key) => ({
-      key,
-      original: originalFlat[key] || '',
-      translated: translatedFlat[key] || '',
-    }));
+    const items: FlattenedItem[] = Object.keys(originalFlat).map((key) => {
+      const original = originalFlat[key] || '';
+      const translated = translatedFlat[key] || '';
+
+      let status: 'missing' | 'untranslated' | 'translated';
+      if (!translated) {
+        status = 'missing';
+      } else if (original === translated) {
+        status = 'untranslated';
+      } else {
+        status = 'translated';
+      }
+
+      return {
+        key,
+        original,
+        translated,
+        status,
+      };
+    });
 
     return items;
   }, [originalData, translatedData]);
 
-  // Filter data based on search term
+  // Filter data based on search term and status filter
   const filteredData = useMemo(() => {
-    if (!searchTerm) return flattenedData;
-    const term = searchTerm.toLowerCase();
-    return flattenedData.filter(
-      (item) =>
-        item.key.toLowerCase().includes(term) ||
-        item.original.toLowerCase().includes(term) ||
-        item.translated.toLowerCase().includes(term)
-    );
-  }, [flattenedData, searchTerm]);
+    let filtered = flattenedData;
+
+    // Apply search filter
+    if (searchTerm) {
+      const term = searchTerm.toLowerCase();
+      filtered = filtered.filter(
+        (item) =>
+          item.key.toLowerCase().includes(term) ||
+          item.original.toLowerCase().includes(term) ||
+          item.translated.toLowerCase().includes(term)
+      );
+    }
+
+    // Apply status filter
+    if (statusFilter !== 'all') {
+      filtered = filtered.filter((item) => item.status === statusFilter);
+    }
+
+    return filtered;
+  }, [flattenedData, searchTerm, statusFilter]);
+
+  // Sort data
+  const sortedData = useMemo(() => {
+    const sorted = [...filteredData].sort((a, b) => {
+      let aValue: string | number;
+      let bValue: string | number;
+
+      switch (sortField) {
+        case 'status':
+          // Custom sort order: translated, untranslated, missing (shows completed work first)
+          const statusOrder = { translated: 0, untranslated: 1, missing: 2 };
+          aValue = statusOrder[a.status];
+          bValue = statusOrder[b.status];
+          break;
+        case 'key':
+          aValue = a.key.toLowerCase();
+          bValue = b.key.toLowerCase();
+          break;
+        case 'original':
+          aValue = a.original.toLowerCase();
+          bValue = b.original.toLowerCase();
+          break;
+        case 'translated':
+          aValue = a.translated.toLowerCase();
+          bValue = b.translated.toLowerCase();
+          break;
+        default:
+          aValue = a.key.toLowerCase();
+          bValue = b.key.toLowerCase();
+      }
+
+      if (aValue < bValue) return sortDirection === 'asc' ? -1 : 1;
+      if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
+      return 0;
+    });
+
+    return sorted;
+  }, [filteredData, sortField, sortDirection]);
+
+  // Paginate data
+  const paginatedData = useMemo(() => {
+    const startIndex = (currentPage - 1) * pageSize;
+    const endIndex = startIndex + pageSize;
+    return sortedData.slice(startIndex, endIndex);
+  }, [sortedData, currentPage, pageSize]);
+
+  // Calculate pagination info
+  const totalPages = Math.ceil(sortedData.length / pageSize);
+  const startItem =
+    sortedData.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const endItem = Math.min(currentPage * pageSize, sortedData.length);
 
   // Get statistics for display
   const stats = useMemo(() => {
-    const missing = flattenedData.filter((item) => !item.translated).length;
+    const missing = flattenedData.filter(
+      (item) => item.status === 'missing'
+    ).length;
     const untranslated = flattenedData.filter(
-      (item) => item.original === item.translated && item.translated
+      (item) => item.status === 'untranslated'
     ).length;
     const translated = flattenedData.filter(
-      (item) => item.translated && item.original !== item.translated
+      (item) => item.status === 'translated'
     ).length;
 
     return { missing, untranslated, translated, total: flattenedData.length };
   }, [flattenedData]);
+
+  // Reset pagination when filters change
+  const resetPagination = () => {
+    setCurrentPage(1);
+  };
+
+  // Handle sorting
+  const handleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('asc');
+    }
+    resetPagination();
+  };
+
+  const getSortIcon = (field: SortField) => {
+    if (sortField !== field)
+      return <ArrowUpDown className="w-3 h-3 opacity-50" />;
+    return sortDirection === 'asc' ? (
+      <ArrowUp className="w-3 h-3 text-primary" />
+    ) : (
+      <ArrowDown className="w-3 h-3 text-primary" />
+    );
+  };
 
   const handleEdit = (key: string, currentValue: string) => {
     setEditingKey(key);
@@ -196,10 +332,14 @@ export function TranslationTable({
   };
 
   const selectAllUntranslated = () => {
-    const untranslatedKeys = flattenedData
-      .filter((item) => !item.translated || item.original === item.translated)
+    const untranslatedKeys = paginatedData
+      .filter(
+        (item) => item.status === 'missing' || item.status === 'untranslated'
+      )
       .map((item) => item.key);
-    setSelectedForBulkRetranslation(new Set(untranslatedKeys));
+    setSelectedForBulkRetranslation(
+      new Set([...selectedForBulkRetranslation, ...untranslatedKeys])
+    );
   };
 
   const clearSelection = () => {
@@ -207,34 +347,37 @@ export function TranslationTable({
   };
 
   const getRowClassName = (item: FlattenedItem) => {
-    if (!item.translated)
+    if (item.status === 'missing')
       return 'bg-destructive/5 border-l-4 border-destructive/50';
-    if (item.original === item.translated)
+    if (item.status === 'untranslated')
       return 'bg-yellow-50 dark:bg-yellow-950/10 border-l-4 border-yellow-500/50';
     return 'bg-card hover:bg-muted/30 transition-colors duration-200';
   };
 
   const getStatusBadge = (item: FlattenedItem) => {
-    if (!item.translated)
-      return (
-        <Badge variant="destructive" className="text-xs">
-          Missing
-        </Badge>
-      );
-    if (item.original === item.translated)
-      return (
-        <Badge variant="secondary" className="text-xs">
-          Untranslated
-        </Badge>
-      );
-    return (
-      <Badge
-        variant="default"
-        className="text-xs bg-accent text-accent-foreground"
-      >
-        Translated
-      </Badge>
-    );
+    switch (item.status) {
+      case 'missing':
+        return (
+          <Badge variant="destructive" className="text-xs">
+            Missing
+          </Badge>
+        );
+      case 'untranslated':
+        return (
+          <Badge variant="secondary" className="text-xs">
+            Untranslated
+          </Badge>
+        );
+      case 'translated':
+        return (
+          <Badge
+            variant="default"
+            className="text-xs bg-accent text-accent-foreground"
+          >
+            Translated
+          </Badge>
+        );
+    }
   };
 
   return (
@@ -255,27 +398,30 @@ export function TranslationTable({
             {/* Statistics display */}
             <div className="flex items-center space-x-2">
               <Badge variant="outline" className="border-primary/30">
-                {filteredData.length} items
+                {sortedData.length} items
               </Badge>
               <Badge variant="outline" className="border-accent/30">
                 {sourceLanguage.toUpperCase()} → {targetLanguage.toUpperCase()}
               </Badge>
               <Badge
                 variant="outline"
-                className="border-green-500/30 text-green-700"
+                className="border-green-500/30 text-green-700 cursor-pointer hover:bg-green-50"
+                onClick={() => setStatusFilter('translated')}
               >
                 {stats.translated} translated
               </Badge>
               <Badge
                 variant="outline"
-                className="border-yellow-500/30 text-yellow-700"
+                className="border-yellow-500/30 text-yellow-700 cursor-pointer hover:bg-yellow-50"
+                onClick={() => setStatusFilter('untranslated')}
               >
                 {stats.untranslated} untranslated
               </Badge>
               {stats.missing > 0 && (
                 <Badge
                   variant="outline"
-                  className="border-red-500/30 text-red-700"
+                  className="border-red-500/30 text-red-700 cursor-pointer hover:bg-red-50"
+                  onClick={() => setStatusFilter('missing')}
                 >
                   {stats.missing} missing
                 </Badge>
@@ -308,32 +454,88 @@ export function TranslationTable({
               <Input
                 placeholder="Search translations..."
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(e) => {
+                  setSearchTerm(e.target.value);
+                  resetPagination();
+                }}
                 className="pl-10 w-64 bg-background border-border/50 focus:border-primary"
               />
             </div>
           </div>
         </div>
 
-        {/* Bulk actions */}
+        {/* Filters and Controls */}
         <div className="flex items-center justify-between">
-          <div className="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={selectAllUntranslated}
-              disabled={stats.missing + stats.untranslated === 0}
-            >
-              Select Untranslated ({stats.missing + stats.untranslated})
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={clearSelection}
-              disabled={selectedForBulkRetranslation.size === 0}
-            >
-              Clear Selection
-            </Button>
+          <div className="flex items-center space-x-4">
+            {/* Status Filter */}
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-muted-foreground">Filter:</span>
+              <Select
+                value={statusFilter}
+                onValueChange={(value: any) => {
+                  setStatusFilter(value);
+                  resetPagination();
+                }}
+              >
+                <SelectTrigger className="w-[140px] h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Status</SelectItem>
+                  <SelectItem value="missing">Missing</SelectItem>
+                  <SelectItem value="untranslated">Untranslated</SelectItem>
+                  <SelectItem value="translated">Translated</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Page Size */}
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-muted-foreground">Show:</span>
+              <Select
+                value={pageSize.toString()}
+                onValueChange={(value) => {
+                  setPageSize(Number(value));
+                  resetPagination();
+                }}
+              >
+                <SelectTrigger className="w-[80px] h-8">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="25">25</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                  <SelectItem value="100">100</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            {/* Bulk actions */}
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={selectAllUntranslated}
+                disabled={
+                  paginatedData.filter(
+                    (item) =>
+                      item.status === 'missing' ||
+                      item.status === 'untranslated'
+                  ).length === 0
+                }
+              >
+                Select Page Untranslated
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={clearSelection}
+                disabled={selectedForBulkRetranslation.size === 0}
+              >
+                Clear Selection
+              </Button>
+            </div>
           </div>
 
           {selectedForBulkRetranslation.size > 0 && (
@@ -361,7 +563,7 @@ export function TranslationTable({
       </div>
 
       {/* Table */}
-      <div className="overflow-x-auto max-h-[600px] overflow-y-auto">
+      <div className="overflow-x-auto">
         <table className="w-full">
           <thead className="bg-gradient-to-r from-muted/70 to-muted/50 sticky top-0 z-10">
             <tr>
@@ -369,16 +571,40 @@ export function TranslationTable({
                 Select
               </th>
               <th className="text-left p-4 font-semibold text-muted-foreground text-xs uppercase tracking-wider border-r border-border/50">
-                Key
+                <button
+                  onClick={() => handleSort('key')}
+                  className="flex items-center space-x-1 hover:text-foreground transition-colors"
+                >
+                  <span>Key</span>
+                  {getSortIcon('key')}
+                </button>
               </th>
               <th className="text-left p-4 font-semibold text-muted-foreground text-xs uppercase tracking-wider border-r border-border/50">
-                Original ({sourceLanguage.toUpperCase()})
+                <button
+                  onClick={() => handleSort('original')}
+                  className="flex items-center space-x-1 hover:text-foreground transition-colors"
+                >
+                  <span>Original ({sourceLanguage.toUpperCase()})</span>
+                  {getSortIcon('original')}
+                </button>
               </th>
               <th className="text-left p-4 font-semibold text-muted-foreground text-xs uppercase tracking-wider border-r border-border/50">
-                Translation ({targetLanguage.toUpperCase()})
+                <button
+                  onClick={() => handleSort('translated')}
+                  className="flex items-center space-x-1 hover:text-foreground transition-colors"
+                >
+                  <span>Translation ({targetLanguage.toUpperCase()})</span>
+                  {getSortIcon('translated')}
+                </button>
               </th>
               <th className="text-left p-4 font-semibold text-muted-foreground text-xs uppercase tracking-wider border-r border-border/50">
-                Status
+                <button
+                  onClick={() => handleSort('status')}
+                  className="flex items-center space-x-1 hover:text-foreground transition-colors"
+                >
+                  <span>Status</span>
+                  {getSortIcon('status')}
+                </button>
               </th>
               <th className="text-left p-4 font-semibold text-muted-foreground text-xs uppercase tracking-wider">
                 Actions
@@ -386,7 +612,7 @@ export function TranslationTable({
             </tr>
           </thead>
           <tbody>
-            {filteredData.map((item, index) => (
+            {paginatedData.map((item, index) => (
               <tr
                 key={item.key}
                 className={`border-b border-border/50 ${getRowClassName(item)}`}
@@ -397,7 +623,7 @@ export function TranslationTable({
                     type="checkbox"
                     checked={selectedForBulkRetranslation.has(item.key)}
                     onChange={() => toggleBulkSelection(item.key)}
-                    className="rounded border-border/50 text-primary focus:ring-primary"
+                    className="w-4 h-4 rounded border-2 border-border/50 text-primary bg-background checked:bg-primary checked:border-primary focus:ring-2 focus:ring-primary/20 focus:ring-offset-0 accent-primary"
                   />
                 </td>
 
@@ -516,7 +742,7 @@ export function TranslationTable({
           </tbody>
         </table>
 
-        {filteredData.length === 0 && (
+        {paginatedData.length === 0 && (
           <div className="p-12 text-center text-muted-foreground">
             <div className="w-16 h-16 bg-muted rounded-2xl flex items-center justify-center mx-auto mb-4">
               <Search className="w-8 h-8" />
@@ -525,11 +751,89 @@ export function TranslationTable({
               No translations found
             </h4>
             <p className="text-sm">
-              Try adjusting your search terms or check if translations exist.
+              Try adjusting your search terms or filters.
             </p>
           </div>
         )}
       </div>
+
+      {/* Pagination */}
+      {totalPages > 1 && (
+        <div className="border-t border-border p-4 bg-gradient-to-r from-muted/50 to-muted/30">
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-muted-foreground">
+              Showing {startItem} to {endItem} of {sortedData.length} results
+            </div>
+
+            <div className="flex items-center space-x-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(1)}
+                disabled={currentPage === 1}
+                className="h-8 w-8 p-0"
+              >
+                <ChevronsLeft className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(currentPage - 1)}
+                disabled={currentPage === 1}
+                className="h-8 w-8 p-0"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </Button>
+
+              <div className="flex items-center space-x-1">
+                {[...Array(Math.min(5, totalPages))].map((_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (currentPage <= 3) {
+                    pageNum = i + 1;
+                  } else if (currentPage >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = currentPage - 2 + i;
+                  }
+
+                  return (
+                    <Button
+                      key={pageNum}
+                      variant={currentPage === pageNum ? 'default' : 'outline'}
+                      size="sm"
+                      onClick={() => setCurrentPage(pageNum)}
+                      className="h-8 w-8 p-0"
+                    >
+                      {pageNum}
+                    </Button>
+                  );
+                })}
+              </div>
+
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(currentPage + 1)}
+                disabled={currentPage === totalPages}
+                className="h-8 w-8 p-0"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setCurrentPage(totalPages)}
+                disabled={currentPage === totalPages}
+                className="h-8 w-8 p-0"
+              >
+                <ChevronsRight className="w-4 h-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </Card>
   );
 }
