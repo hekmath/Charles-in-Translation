@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/db-service';
 
-// GET /api/translation-progress - Get translation progress for a project and target language
+// GET /api/translation-progress - Get enhanced translation progress
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const projectIdParam = searchParams.get('projectId');
     const targetLanguage = searchParams.get('targetLanguage');
+    const includeChunkDetails =
+      searchParams.get('includeChunkDetails') === 'true';
 
     if (!projectIdParam) {
       return NextResponse.json(
@@ -51,7 +53,8 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const progress = await dbService.translationTasks.getProgress(
+    // Get enhanced progress with chunk details
+    const progress = await dbService.translationTasks.getProjectProgress(
       projectId,
       targetLanguage
     );
@@ -64,9 +67,67 @@ export async function GET(request: NextRequest) {
       });
     }
 
+    // Optionally include detailed chunk information
+    let responseData: any = {
+      taskId: progress.taskId,
+      status: progress.status,
+
+      // Enhanced progress metrics - using actual counts instead of percentages
+      totalKeys: progress.totalKeys,
+      translatedKeys: progress.translatedKeys,
+      progressPercentage: progress.progressPercentage,
+
+      // Chunk-level progress
+      totalChunks: progress.totalChunks,
+      completedChunks: progress.completedChunks,
+      failedChunks: progress.failedChunks,
+
+      // Time estimates
+      estimatedTimeRemaining: progress.estimatedTimeRemaining,
+
+      // Status information
+      error: progress.error,
+      startedAt: progress.startedAt,
+      completedAt: progress.completedAt,
+
+      // Summary metrics for UI display
+      summary: {
+        keysRemaining: progress.totalKeys - progress.translatedKeys,
+        chunksRemaining:
+          progress.totalChunks -
+          progress.completedChunks -
+          progress.failedChunks,
+        successRate:
+          progress.totalKeys > 0
+            ? Math.round((progress.translatedKeys / progress.totalKeys) * 100)
+            : 0,
+        chunkSuccessRate:
+          progress.totalChunks > 0
+            ? Math.round(
+                (progress.completedChunks / progress.totalChunks) * 100
+              )
+            : 0,
+      },
+    };
+
+    // Include chunk details if requested (useful for debugging or detailed progress views)
+    if (includeChunkDetails && progress.chunks) {
+      responseData.chunks = progress.chunks.map((chunk) => ({
+        index: chunk.index,
+        status: chunk.status,
+        itemsCount: chunk.itemsCount,
+        translatedCount: chunk.translatedCount,
+        error: chunk.error,
+        successRate:
+          chunk.itemsCount > 0
+            ? Math.round((chunk.translatedCount / chunk.itemsCount) * 100)
+            : 0,
+      }));
+    }
+
     return NextResponse.json({
       success: true,
-      data: progress,
+      data: responseData,
     });
   } catch (error) {
     console.error('Failed to fetch translation progress:', error);
@@ -75,6 +136,105 @@ export async function GET(request: NextRequest) {
       {
         success: false,
         error: 'Failed to fetch translation progress',
+        details: error instanceof Error ? error.message : 'Unknown error',
+      },
+      { status: 500 }
+    );
+  }
+}
+
+// POST /api/translation-progress - Manual progress update (for testing/admin)
+export async function POST(request: NextRequest) {
+  try {
+    const body = await request.json();
+    const { taskId, action, data } = body;
+
+    if (!taskId || !action) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Task ID and action are required',
+        },
+        { status: 400 }
+      );
+    }
+
+    // Check if task exists
+    const task = await dbService.translationTasks.getById(taskId);
+    if (!task) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Translation task not found',
+        },
+        { status: 404 }
+      );
+    }
+
+    let result;
+
+    switch (action) {
+      case 'updateTranslatedKeys':
+        if (typeof data?.increment !== 'number') {
+          return NextResponse.json(
+            { success: false, error: 'Increment value required' },
+            { status: 400 }
+          );
+        }
+        result = await dbService.translationTasks.updateTranslatedKeys(
+          taskId,
+          data.increment
+        );
+        break;
+
+      case 'incrementCompletedChunks':
+        result = await dbService.translationTasks.incrementCompletedChunks(
+          taskId
+        );
+        break;
+
+      case 'incrementFailedChunks':
+        result = await dbService.translationTasks.incrementFailedChunks(taskId);
+        break;
+
+      case 'updateStatus':
+        if (!data?.status) {
+          return NextResponse.json(
+            { success: false, error: 'Status value required' },
+            { status: 400 }
+          );
+        }
+        result = await dbService.translationTasks.update(taskId, {
+          status: data.status,
+          error: data.error,
+          ...(data.status === 'processing' && { startedAt: new Date() }),
+          ...(data.status === 'completed' && { completedAt: new Date() }),
+          ...(data.status === 'failed' && { completedAt: new Date() }),
+        });
+        break;
+
+      default:
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Unknown action: ${action}`,
+          },
+          { status: 400 }
+        );
+    }
+
+    return NextResponse.json({
+      success: true,
+      data: result,
+      message: `Progress updated successfully (${action})`,
+    });
+  } catch (error) {
+    console.error('Failed to update translation progress:', error);
+
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Failed to update translation progress',
         details: error instanceof Error ? error.message : 'Unknown error',
       },
       { status: 500 }

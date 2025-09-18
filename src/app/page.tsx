@@ -17,7 +17,7 @@ import {
   useCreateProject,
   useTranslationTasks,
   useCreateTranslationTask,
-  useCachedTranslations, // Re-added this hook
+  useCachedTranslations,
   useTranslationProgress,
   useTranslate,
 } from '@/lib/hooks/use-api';
@@ -35,26 +35,23 @@ export default function Home() {
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [currentProjectId, setCurrentProjectId] = useState<number | null>(null);
   const [showProgress, setShowProgress] = useState(false);
-  const [usingInngest, setUsingInngest] = useState(false);
 
   // Track active translation to prevent false completion notifications
   const activeTranslationRef = useRef<{
     taskId?: number;
     targetLanguage?: string;
-    usingInngest?: boolean;
   } | null>(null);
 
-  // React Query hooks (replacing Convex)
+  // React Query hooks
   const { data: projects = [], isLoading: projectsLoading } = useProjects();
   const { data: currentProject } = useProject(currentProjectId);
   const { data: translationTasks = [] } = useTranslationTasks(currentProjectId);
   const { data: cachedTranslations = [] } = useCachedTranslations(
-    // Re-added this
     currentProjectId,
     targetLanguage || null
   );
 
-  // Translation progress with polling (replaces Convex real-time)
+  // Enhanced translation progress with better polling
   const { data: translationProgress } = useTranslationProgress(
     currentProjectId,
     targetLanguage || null,
@@ -77,12 +74,12 @@ export default function Home() {
       setTranslatedData(null);
       setSelectedKeys([]);
       setShowProgress(false);
-      setUsingInngest(false);
+      setIsTranslating(false);
       activeTranslationRef.current = null;
     }
   }, [currentProject]);
 
-  // Clean completion detection using cache invalidation
+  // Enhanced completion detection using the new progress structure
   useEffect(() => {
     if (translationProgress?.status === 'completed' && isTranslating) {
       console.log('Translation completed! Refreshing data...');
@@ -99,7 +96,6 @@ export default function Home() {
       console.log('Translation failed:', translationProgress.error);
       setIsTranslating(false);
       setShowProgress(false);
-      setUsingInngest(false);
       activeTranslationRef.current = null;
       toast.error(
         `Translation failed: ${translationProgress.error || 'Unknown error'}`
@@ -124,20 +120,19 @@ export default function Home() {
       setTranslatedData(completedTask.translatedData);
       setIsTranslating(false);
       setShowProgress(false);
-      setUsingInngest(false);
       activeTranslationRef.current = null;
       toast.success('Translation completed!');
     }
   }, [translationTasks, isTranslating]);
 
-  // Auto-restore from cached translations (the missing piece!)
+  // Auto-restore from cached translations
   useEffect(() => {
     if (
       cachedTranslations &&
       cachedTranslations.length > 0 &&
       jsonData &&
       !isTranslating &&
-      !translatedData // Only restore if we don't already have translated data
+      !translatedData
     ) {
       console.log(
         'Restoring translation from cache...',
@@ -222,7 +217,7 @@ export default function Home() {
         keys: keys || selectedKeys || [],
       });
 
-      // Call translate API (now always uses Inngest)
+      // Call translate API (now uses new coordinator workflow)
       translateMutation.mutateAsync({
         data: jsonData,
         projectId: currentProjectId,
@@ -232,21 +227,20 @@ export default function Home() {
         taskId: task.id,
       });
 
-      // All translations now use Inngest - set up progress tracking
+      // Set up progress tracking for the new coordinator workflow
       activeTranslationRef.current = {
         taskId: task.id,
         targetLanguage,
-        usingInngest: true,
       };
-      setUsingInngest(true);
       setShowProgress(true);
 
-      toast.success(`Translation job queued! Processing in the background.`);
+      toast.success(
+        `Translation job queued! Processing in background with new workflow.`
+      );
     } catch (error) {
       console.error('Translation failed:', error);
       setIsTranslating(false);
       setShowProgress(false);
-      setUsingInngest(false);
       activeTranslationRef.current = null;
       // Error handling is done in the mutation hooks
     }
@@ -258,9 +252,121 @@ export default function Home() {
     setSelectedKeys([]);
     setCurrentProjectId(null);
     setShowProgress(false);
-    setUsingInngest(false);
-    setIsTranslating(false); // Force reset translating state
+    setIsTranslating(false);
     activeTranslationRef.current = null;
+  };
+
+  // Enhanced progress display component
+  const ProgressDisplay = () => {
+    if (!showProgress || !translationProgress) return null;
+
+    const {
+      totalKeys,
+      translatedKeys,
+      totalChunks,
+      completedChunks,
+      failedChunks,
+      status,
+      estimatedTimeRemaining,
+    } = translationProgress;
+
+    const formatTimeRemaining = (ms: number | null) => {
+      if (!ms) return 'Calculating...';
+      const seconds = Math.floor(ms / 1000);
+      const minutes = Math.floor(seconds / 60);
+      const hours = Math.floor(minutes / 60);
+
+      if (hours > 0) return `${hours}h ${minutes % 60}m`;
+      if (minutes > 0) return `${minutes}m ${seconds % 60}s`;
+      return `${seconds}s`;
+    };
+
+    return (
+      <div className="bg-card border border-border/50 rounded-2xl p-6 shadow-sm">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-3">
+            <div className="w-10 h-10 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center shadow-sm">
+              <div className="w-4 h-4 border-2 border-primary-foreground/30 border-t-primary-foreground rounded-full animate-spin"></div>
+            </div>
+            <div>
+              <h3 className="font-heading font-bold text-foreground">
+                Translation in Progress
+              </h3>
+              <p className="text-sm text-muted-foreground capitalize">
+                Status: {status}
+              </p>
+            </div>
+          </div>
+          <div className="text-right">
+            <div className="text-2xl font-bold text-primary">
+              {translatedKeys} / {totalKeys}
+            </div>
+            <div className="text-sm text-muted-foreground">keys translated</div>
+          </div>
+        </div>
+
+        {/* Progress bars */}
+        <div className="space-y-3">
+          {/* Key progress */}
+          <div>
+            <div className="flex items-center justify-between text-sm mb-1">
+              <span className="text-muted-foreground">
+                Translation Progress
+              </span>
+              <span className="text-foreground font-medium">
+                {totalKeys > 0
+                  ? Math.round((translatedKeys / totalKeys) * 100)
+                  : 0}
+                %
+              </span>
+            </div>
+            <div className="w-full bg-muted rounded-full h-2">
+              <div
+                className="bg-gradient-to-r from-primary to-secondary h-2 rounded-full transition-all duration-300"
+                style={{
+                  width: `${
+                    totalKeys > 0 ? (translatedKeys / totalKeys) * 100 : 0
+                  }%`,
+                }}
+              ></div>
+            </div>
+          </div>
+
+          {/* Chunk progress */}
+          <div>
+            <div className="flex items-center justify-between text-sm mb-1">
+              <span className="text-muted-foreground">Chunk Progress</span>
+              <span className="text-foreground font-medium">
+                {completedChunks} / {totalChunks} chunks
+                {failedChunks > 0 && (
+                  <span className="text-destructive ml-1">
+                    ({failedChunks} failed)
+                  </span>
+                )}
+              </span>
+            </div>
+            <div className="w-full bg-muted rounded-full h-2">
+              <div
+                className="bg-gradient-to-r from-accent to-accent/70 h-2 rounded-full transition-all duration-300"
+                style={{
+                  width: `${
+                    totalChunks > 0 ? (completedChunks / totalChunks) * 100 : 0
+                  }%`,
+                }}
+              ></div>
+            </div>
+          </div>
+        </div>
+
+        {/* Time estimate */}
+        {estimatedTimeRemaining && (
+          <div className="mt-4 text-center text-sm text-muted-foreground">
+            Estimated time remaining:{' '}
+            {formatTimeRemaining(estimatedTimeRemaining)}
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -425,7 +531,7 @@ export default function Home() {
             <div className="bg-card border border-border/50 rounded-2xl p-6 shadow-sm">
               <div className="flex items-center justify-between">
                 <div className="flex items-center space-x-4">
-                  <div className="w-12 h-12 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center">
+                  <div className="w-12 h-12 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center shadow-sm">
                     <svg
                       className="w-6 h-6 text-primary-foreground"
                       fill="none"
@@ -452,23 +558,18 @@ export default function Home() {
                   </div>
                 </div>
                 <div className="flex items-center space-x-2">
-                  {translatedData && (
+                  {translatedData && !isTranslating && (
                     <div className="flex items-center space-x-2 text-sm text-accent">
                       <div className="w-2 h-2 bg-accent rounded-full"></div>
                       <span className="font-medium">Translation Complete</span>
                     </div>
                   )}
-                  {showProgress && translationProgress && (
-                    <div className="flex items-center space-x-2 text-sm text-primary">
-                      <div className="w-2 h-2 bg-primary rounded-full animate-pulse"></div>
-                      <span className="font-medium">
-                        {translationProgress.progressPercentage}% Complete
-                      </span>
-                    </div>
-                  )}
                 </div>
               </div>
             </div>
+
+            {/* Enhanced progress display */}
+            {showProgress && <ProgressDisplay />}
 
             <TranslationControls
               hasData={!!jsonData}

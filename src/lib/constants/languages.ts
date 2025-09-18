@@ -16,9 +16,13 @@ export const SUPPORTED_LANGUAGES: Language[] = [
     flag: '🇨🇦',
     nativeName: 'Français (Québec)',
   },
-  { code: 'fr', name: 'French', flag: '🇫🇷', nativeName: 'Français' },
+  {
+    code: 'en-GB',
+    name: 'English (United Kingdom)',
+    flag: '🇬🇧',
+    nativeName: 'English (UK)',
+  },
 ];
-
 // Popular languages (first 10) for quick access
 export const POPULAR_LANGUAGES = SUPPORTED_LANGUAGES.slice(0, 10);
 

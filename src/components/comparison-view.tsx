@@ -18,9 +18,8 @@ import Editor from '@monaco-editor/react';
 import { getLanguageByCode, type Language } from '@/lib/constants/languages';
 import { TranslationTable } from '@/components/translation-table';
 import {
-  useCreateTranslationTask,
-  useTranslate,
   useSaveTranslation,
+  useRetranslate, // New hook for retranslation
 } from '@/lib/hooks/use-api';
 
 interface ComparisonViewProps {
@@ -42,10 +41,9 @@ export function ComparisonView({
 }: ComparisonViewProps) {
   const [viewMode, setViewMode] = useState<'side-by-side' | 'table'>('table');
 
-  // React Query mutations
-  const createTranslationTaskMutation = useCreateTranslationTask();
-  const translateMutation = useTranslate();
+  // React Query mutations with proper cache invalidation
   const saveTranslationMutation = useSaveTranslation();
+  const retranslateMutation = useRetranslate();
 
   const getLanguageInfo = (code: string): Language =>
     getLanguageByCode(code) || { code, name: code.toUpperCase(), flag: '🌐' };
@@ -79,68 +77,66 @@ export function ComparisonView({
     }
   };
 
-  // Updated handleRetranslate function to use React Query
+  // Enhanced retranslate function with proper cache invalidation
   const handleRetranslate = async (keys: string[]): Promise<void> => {
     try {
-      // Create a translation task first
-      const task = await createTranslationTaskMutation.mutateAsync({
-        projectId,
-        targetLanguage,
-        keys,
-      });
-
-      // Call the translate API with the task ID
-      await translateMutation.mutateAsync({
-        data: originalData,
+      await retranslateMutation.mutateAsync({
         projectId,
         sourceLanguage,
         targetLanguage,
-        selectedKeys: keys,
-        taskId: task.id,
+        keys,
+        originalData,
       });
 
-      toast.success(
-        `Re-translation queued for ${keys.length} item(s). Check progress for updates.`
-      );
+      // Note: Cache invalidation is handled in the useRetranslate hook
+      // This ensures the UI updates immediately when retranslation starts
+      // and the comparison view will show updated data when translation completes
     } catch (error) {
       console.error('Re-translation failed:', error);
-      // Error toast is handled by the mutation hooks
+      // Error toast is handled by the mutation hook
       throw error;
     }
   };
 
-  // Handle individual translation edits
+  // Enhanced edit function with optimistic updates
   const handleEdit = async (key: string, value: string): Promise<void> => {
     try {
       // Get the original value for this key
       const flatOriginal = flattenJson(originalData);
       const originalValue = flatOriginal[key];
 
-      if (originalValue) {
-        // Save the translation to the database
-        await saveTranslationMutation.mutateAsync({
-          projectId,
-          key,
-          sourceText: originalValue,
-          translatedText: value,
-          sourceLanguage,
-          targetLanguage,
-        });
-
-        // Update the local translated data
-        if (translatedData && onTranslationUpdate) {
-          const updated = { ...translatedData };
-          const keys = key.split('.');
-          let current = updated;
-          for (let i = 0; i < keys.length - 1; i++) {
-            current = current[keys[i]];
-          }
-          current[keys[keys.length - 1]] = value;
-          onTranslationUpdate(updated);
-        }
-
-        toast.success('Translation updated successfully');
+      if (!originalValue) {
+        toast.error('Original value not found for this key');
+        return;
       }
+
+      // Save the translation (with optimistic update)
+      await saveTranslationMutation.mutateAsync({
+        projectId,
+        key,
+        sourceText: originalValue,
+        translatedText: value,
+        sourceLanguage,
+        targetLanguage,
+      });
+
+      // Update local state immediately for responsiveness
+      if (translatedData && onTranslationUpdate) {
+        const updated = { ...translatedData };
+        const keys = key.split('.');
+        let current = updated;
+        for (let i = 0; i < keys.length - 1; i++) {
+          if (!current[keys[i]]) {
+            current[keys[i]] = {};
+          }
+          current = current[keys[i]];
+        }
+        current[keys[keys.length - 1]] = value;
+        onTranslationUpdate(updated);
+      }
+
+      // Note: Database save and cache invalidation is handled by useSaveTranslation hook
+      // The hook includes optimistic updates, so UI responds immediately
     } catch (error) {
       console.error('Failed to save edit:', error);
       // Error toast is handled by the mutation hook
@@ -197,6 +193,16 @@ export function ComparisonView({
                 <span>{targetInfo.name}</span>
               </Badge>
             </div>
+
+            {/* Show loading states for mutations */}
+            {(saveTranslationMutation.isPending ||
+              retranslateMutation.isPending) && (
+              <Badge variant="secondary" className="animate-pulse">
+                {saveTranslationMutation.isPending
+                  ? 'Saving...'
+                  : 'Retranslating...'}
+              </Badge>
+            )}
           </div>
 
           <div className="flex items-center space-x-2">
@@ -251,6 +257,9 @@ export function ComparisonView({
           onRetranslate={handleRetranslate}
           sourceLanguage={sourceLanguage}
           targetLanguage={targetLanguage}
+          // Pass loading states to show pending operations
+          isEditLoading={saveTranslationMutation.isPending}
+          isRetranslateLoading={retranslateMutation.isPending}
         />
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -294,6 +303,15 @@ export function ComparisonView({
                   <Badge variant="default" className="text-xs">
                     Editable
                   </Badge>
+                  {/* Show mutation status */}
+                  {saveTranslationMutation.isPending && (
+                    <Badge
+                      variant="secondary"
+                      className="text-xs animate-pulse"
+                    >
+                      Saving...
+                    </Badge>
+                  )}
                 </div>
                 <Button
                   variant="outline"

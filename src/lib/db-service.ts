@@ -1,17 +1,20 @@
 import { db } from '@/db/drizzle';
-import { projects, translationTasks, translations } from '@/db/schema';
 import {
-  type Project,
+  projects,
+  translationTasks,
+  translations,
+  translationChunks,
+} from '@/db/schema';
+import {
   type TranslationTask,
-  type Translation,
   type NewProject,
   type NewTranslationTask,
   type NewTranslation,
-  type TaskStatus,
+  type ChunkStatus,
 } from '@/db/types';
-import { eq, and, desc, asc } from 'drizzle-orm';
+import { eq, and, desc, asc, sum, count, sql } from 'drizzle-orm';
 
-// Projects Service
+// Projects Service (unchanged)
 export class ProjectsService {
   static async create(data: Omit<NewProject, 'createdAt' | 'updatedAt'>) {
     const [project] = await db
@@ -40,13 +43,22 @@ export class ProjectsService {
   }
 
   static async delete(id: number) {
-    // First delete related translation tasks
+    // Delete in order: chunks -> translations -> tasks -> project
+    await db
+      .delete(translationChunks)
+      .where(
+        eq(
+          translationChunks.taskId,
+          db
+            .select({ id: translationTasks.id })
+            .from(translationTasks)
+            .where(eq(translationTasks.projectId, id))
+        )
+      );
+
+    await db.delete(translations).where(eq(translations.projectId, id));
     await db.delete(translationTasks).where(eq(translationTasks.projectId, id));
 
-    // Delete related translations
-    await db.delete(translations).where(eq(translations.projectId, id));
-
-    // Finally delete the project
     const [deletedProject] = await db
       .delete(projects)
       .where(eq(projects.id, id))
@@ -56,7 +68,7 @@ export class ProjectsService {
   }
 }
 
-// Translation Tasks Service
+// Translation Tasks Service with enhanced progress tracking
 export class TranslationTasksService {
   static async create(
     data: Omit<NewTranslationTask, 'createdAt' | 'updatedAt' | 'status'>
@@ -66,6 +78,8 @@ export class TranslationTasksService {
       .values({
         ...data,
         status: 'pending',
+        totalKeys: 0,
+        translatedKeys: 0,
         createdAt: new Date(),
         updatedAt: new Date(),
       })
@@ -77,7 +91,10 @@ export class TranslationTasksService {
   static async update(
     id: number,
     updates: Partial<
-      Pick<TranslationTask, 'status' | 'translatedData' | 'error'>
+      Pick<
+        TranslationTask,
+        'status' | 'translatedData' | 'error' | 'startedAt' | 'completedAt'
+      >
     >
   ) {
     const [updatedTask] = await db
@@ -92,80 +109,66 @@ export class TranslationTasksService {
     return updatedTask;
   }
 
-  static async updateProgress(
+  // Initialize task with total keys count
+  static async initializeProgress(
     id: number,
-    progress: {
-      totalChunks?: number;
-      completedChunks?: number;
-      currentChunk?: number;
-    }
+    totalKeys: number,
+    totalChunks: number
   ) {
-    const updates: any = {
-      updatedAt: new Date(),
-    };
-
-    if (progress.totalChunks !== undefined) {
-      updates.totalChunks = progress.totalChunks;
-    }
-    if (progress.completedChunks !== undefined) {
-      updates.completedChunks = progress.completedChunks;
-    }
-    if (progress.currentChunk !== undefined) {
-      updates.currentChunk = progress.currentChunk;
-    }
-
-    // Calculate progress percentage
-    let progressPercentage = 0;
-    if (
-      progress.totalChunks !== undefined &&
-      progress.totalChunks > 0 &&
-      progress.completedChunks !== undefined
-    ) {
-      progressPercentage = Math.round(
-        (progress.completedChunks / progress.totalChunks) * 100
-      );
-    } else {
-      // If we don't have new values, get current values from database
-      const currentTask = await this.getById(id);
-      if (
-        currentTask &&
-        currentTask.totalChunks &&
-        currentTask.totalChunks > 0
-      ) {
-        const completedChunks =
-          progress.completedChunks !== undefined
-            ? progress.completedChunks
-            : currentTask.completedChunks || 0;
-        progressPercentage = Math.round(
-          (completedChunks / currentTask.totalChunks) * 100
-        );
-      }
-    }
-
-    updates.progressPercentage = progressPercentage;
-
-    // Calculate estimated time remaining
-    if (
-      updates.progressPercentage < 100 &&
-      progress.completedChunks !== undefined &&
-      progress.completedChunks > 0
-    ) {
-      const task = await this.getById(id);
-      if (task && task.createdAt && task.totalChunks) {
-        const elapsedTime = Date.now() - new Date(task.createdAt).getTime();
-        const timePerChunk = elapsedTime / progress.completedChunks;
-        const remainingChunks = task.totalChunks - progress.completedChunks;
-        updates.estimatedTimeRemaining = Math.round(
-          timePerChunk * remainingChunks
-        );
-      }
-    } else {
-      updates.estimatedTimeRemaining = null; // Clear when completed
-    }
-
     const [updatedTask] = await db
       .update(translationTasks)
-      .set(updates)
+      .set({
+        totalKeys,
+        totalChunks,
+        translatedKeys: 0,
+        completedChunks: 0,
+        failedChunks: 0,
+        status: 'processing',
+        startedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(translationTasks.id, id))
+      .returning();
+
+    return updatedTask;
+  }
+
+  // Update translated keys count (called when individual translations are saved)
+  static async updateTranslatedKeys(id: number, increment: number = 1) {
+    const [updatedTask] = await db
+      .update(translationTasks)
+      .set({
+        translatedKeys: sql`translated_keys + ${increment}`,
+        updatedAt: new Date(),
+      })
+      .where(eq(translationTasks.id, id))
+      .returning();
+
+    return updatedTask;
+  }
+
+  // Increment completed chunks
+  static async incrementCompletedChunks(id: number) {
+    const [updatedTask] = await db
+      .update(translationTasks)
+      .set({
+        completedChunks: sql`completed_chunks + 1`,
+        updatedAt: new Date(),
+      })
+      .where(eq(translationTasks.id, id))
+      .returning();
+
+    return updatedTask;
+  }
+
+  // Increment failed chunks
+  static async incrementFailedChunks(id: number) {
+    const [updatedTask] = await db
+      .update(translationTasks)
+      .set({
+        failedChunks: sql`failed_chunks + 1`,
+        updatedAt: new Date(),
+      })
       .where(eq(translationTasks.id, id))
       .returning();
 
@@ -189,7 +192,62 @@ export class TranslationTasksService {
       .orderBy(desc(translationTasks.createdAt));
   }
 
-  static async getProgress(projectId: number, targetLanguage: string) {
+  // Get enhanced progress with chunk details
+  static async getProgress(taskId: number) {
+    const [task] = await db
+      .select()
+      .from(translationTasks)
+      .where(eq(translationTasks.id, taskId));
+
+    if (!task) return null;
+
+    // Get chunk breakdown
+    const chunks = await db
+      .select()
+      .from(translationChunks)
+      .where(eq(translationChunks.taskId, taskId))
+      .orderBy(asc(translationChunks.chunkIndex));
+
+    // Calculate real-time progress
+    const progressPercentage =
+      task.totalKeys > 0
+        ? Math.round((task.translatedKeys / task.totalKeys) * 100)
+        : 0;
+
+    // Calculate estimated time remaining
+    let estimatedTimeRemaining = null;
+    if (task.translatedKeys > 0 && task.startedAt) {
+      const elapsedMs = Date.now() - new Date(task.startedAt).getTime();
+      const msPerKey = elapsedMs / task.translatedKeys;
+      const remainingKeys = task.totalKeys - task.translatedKeys;
+      estimatedTimeRemaining = Math.round(msPerKey * remainingKeys);
+    }
+
+    return {
+      taskId: task.id,
+      status: task.status,
+      totalKeys: task.totalKeys,
+      translatedKeys: task.translatedKeys,
+      progressPercentage,
+      totalChunks: task.totalChunks || 0,
+      completedChunks: task.completedChunks || 0,
+      failedChunks: task.failedChunks || 0,
+      estimatedTimeRemaining,
+      error: task.error,
+      chunks: chunks.map((chunk) => ({
+        index: chunk.chunkIndex,
+        status: chunk.status,
+        itemsCount: chunk.itemsCount,
+        translatedCount: chunk.translatedCount,
+        error: chunk.errorMessage,
+      })),
+      startedAt: task.startedAt,
+      completedAt: task.completedAt,
+    };
+  }
+
+  // Get progress for a specific project/language combination
+  static async getProjectProgress(projectId: number, targetLanguage: string) {
     const [task] = await db
       .select()
       .from(translationTasks)
@@ -204,23 +262,105 @@ export class TranslationTasksService {
 
     if (!task) return null;
 
+    return await this.getProgress(task.id);
+  }
+}
+
+// Translation Chunks Service - New service for chunk tracking
+export class TranslationChunksService {
+  static async initializeChunks(taskId: number, chunkCount: number) {
+    const chunks = Array.from({ length: chunkCount }, (_, index) => ({
+      taskId,
+      chunkIndex: index,
+      status: 'pending' as ChunkStatus,
+      itemsCount: 0, // Will be updated when chunk is processed
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    }));
+
+    return await db.insert(translationChunks).values(chunks).returning();
+  }
+
+  static async updateStatus(
+    taskId: number,
+    chunkIndex: number,
+    status: ChunkStatus,
+    itemsCount?: number,
+    translatedCount?: number,
+    errorMessage?: string
+  ) {
+    const updates: any = {
+      status,
+      updatedAt: new Date(),
+    };
+
+    if (itemsCount !== undefined) {
+      updates.itemsCount = itemsCount;
+    }
+
+    if (translatedCount !== undefined) {
+      updates.translatedCount = translatedCount;
+    }
+
+    if (errorMessage) {
+      updates.errorMessage = errorMessage;
+    }
+
+    if (status === 'processing') {
+      updates.startedAt = new Date();
+    } else if (status === 'completed' || status === 'failed') {
+      updates.completedAt = new Date();
+    }
+
+    const [updated] = await db
+      .update(translationChunks)
+      .set(updates)
+      .where(
+        and(
+          eq(translationChunks.taskId, taskId),
+          eq(translationChunks.chunkIndex, chunkIndex)
+        )
+      )
+      .returning();
+
+    return updated;
+  }
+
+  static async getByTask(taskId: number) {
+    return await db
+      .select()
+      .from(translationChunks)
+      .where(eq(translationChunks.taskId, taskId))
+      .orderBy(asc(translationChunks.chunkIndex));
+  }
+
+  static async getChunkProgress(taskId: number) {
+    const chunks = await this.getByTask(taskId);
+
+    const pending = chunks.filter((c) => c.status === 'pending').length;
+    const processing = chunks.filter((c) => c.status === 'processing').length;
+    const completed = chunks.filter((c) => c.status === 'completed').length;
+    const failed = chunks.filter((c) => c.status === 'failed').length;
+
     return {
-      taskId: task.id,
-      status: task.status,
-      progressPercentage: task.progressPercentage || 0,
-      totalChunks: task.totalChunks || 0,
-      completedChunks: task.completedChunks || 0,
-      currentChunk: task.currentChunk || 0,
-      estimatedTimeRemaining: task.estimatedTimeRemaining,
-      error: task.error,
+      total: chunks.length,
+      pending,
+      processing,
+      completed,
+      failed,
+      chunks,
     };
   }
 }
 
-// Translations Service
+// Enhanced Translations Service
 export class TranslationsService {
   static async save(
-    data: Omit<NewTranslation, 'translatedAt' | 'translatedBy'>
+    data: Omit<NewTranslation, 'translatedAt' | 'translatedBy'> & {
+      taskId?: number;
+      chunkIndex?: number;
+      failed?: boolean;
+    }
   ) {
     // Check if translation already exists
     const [existing] = await db
@@ -230,7 +370,8 @@ export class TranslationsService {
         and(
           eq(translations.key, data.key),
           eq(translations.sourceLanguage, data.sourceLanguage),
-          eq(translations.targetLanguage, data.targetLanguage)
+          eq(translations.targetLanguage, data.targetLanguage),
+          eq(translations.projectId, data.projectId)
         )
       );
 
@@ -241,6 +382,9 @@ export class TranslationsService {
         .set({
           translatedText: data.translatedText,
           translatedAt: new Date(),
+          taskId: data.taskId,
+          chunkIndex: data.chunkIndex,
+          failed: data.failed || false,
         })
         .where(eq(translations.id, existing.id))
         .returning();
@@ -254,6 +398,7 @@ export class TranslationsService {
           ...data,
           translatedAt: new Date(),
           translatedBy: 'gpt-4o-mini',
+          failed: data.failed || false,
         })
         .returning();
 
@@ -268,15 +413,43 @@ export class TranslationsService {
       .where(
         and(
           eq(translations.projectId, projectId),
-          eq(translations.targetLanguage, targetLanguage)
+          eq(translations.targetLanguage, targetLanguage),
+          eq(translations.failed, false) // Only return successful translations
         )
       );
   }
+
+  static async getByTask(taskId: number) {
+    return await db
+      .select()
+      .from(translations)
+      .where(eq(translations.taskId, taskId));
+  }
+
+  // Get translation statistics for a project
+  static async getProjectStats(projectId: number, targetLanguage: string) {
+    const result = await db
+      .select({
+        total: count(),
+        successful: count(eq(translations.failed, false)),
+        failed: count(eq(translations.failed, true)),
+      })
+      .from(translations)
+      .where(
+        and(
+          eq(translations.projectId, projectId),
+          eq(translations.targetLanguage, targetLanguage)
+        )
+      );
+
+    return result[0] || { total: 0, successful: 0, failed: 0 };
+  }
 }
 
-// Export all services
+// Export enhanced services
 export const dbService = {
   projects: ProjectsService,
   translationTasks: TranslationTasksService,
+  translationChunks: TranslationChunksService,
   translations: TranslationsService,
 };

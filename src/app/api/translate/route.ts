@@ -153,11 +153,11 @@ export async function POST(request: NextRequest) {
 
     const totalKeys = countKeys(dataToTranslate);
 
-    console.log(`Sending translation job to Inngest: ${totalKeys} keys`);
+    console.log(`Starting translation coordination for ${totalKeys} keys`);
 
-    // Send to Inngest for background processing
+    // Send to new Inngest coordinator instead of the old single function
     await inngest.send({
-      name: 'translation/process',
+      name: 'translation/coordinate', // Changed from 'translation/process'
       data: {
         projectId: projectIdValue,
         taskId: taskIdValue,
@@ -168,19 +168,19 @@ export async function POST(request: NextRequest) {
       },
     });
 
-    // Update task status to indicate it's been queued
+    // Update task status to indicate it's been queued for coordination
     try {
       await dbService.translationTasks.update(taskIdValue, {
-        status: 'processing',
+        status: 'pending', // Will change to 'processing' when coordinator starts
       });
     } catch (error) {
-      console.error('Failed to update task status to processing:', error);
+      console.error('Failed to update task status to pending:', error);
     }
 
     return NextResponse.json({
       success: true,
-      message: 'Translation job queued for background processing',
-      usingInngest: true,
+      message: 'Translation job queued for processing',
+      workflow: 'coordinator-worker', // Indicate new workflow
       totalKeys,
       taskId: taskIdValue,
       metadata: {
@@ -188,6 +188,8 @@ export async function POST(request: NextRequest) {
         targetLanguage,
         selectedKeysOnly: !!(selectedKeys && selectedKeys.length > 0),
         isRTL: targetLanguageInfo.rtl || false,
+        chunkingStrategy: 'parallel-chunks', // Indicate new chunking approach
+        maxChunkSize: 25, // Document the chunk size
       },
     });
   } catch (error) {

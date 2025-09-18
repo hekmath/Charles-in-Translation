@@ -14,16 +14,19 @@ import {
   RotateCcw,
   AlertCircle,
   FileText,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 
 interface TranslationTableProps {
   originalData: Record<string, any>;
   translatedData: Record<string, any>;
-  onEdit: (key: string, value: string) => void;
+  onEdit: (key: string, value: string) => Promise<void>;
   onRetranslate: (keys: string[]) => Promise<void>;
   sourceLanguage: string;
   targetLanguage: string;
+  isEditLoading?: boolean;
+  isRetranslateLoading?: boolean;
 }
 
 interface FlattenedItem {
@@ -41,6 +44,8 @@ export function TranslationTable({
   onRetranslate,
   sourceLanguage,
   targetLanguage,
+  isEditLoading = false,
+  isRetranslateLoading = false,
 }: TranslationTableProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [editingKey, setEditingKey] = useState<string | null>(null);
@@ -48,6 +53,8 @@ export function TranslationTable({
   const [retranslatingKeys, setRetranslatingKeys] = useState<Set<string>>(
     new Set()
   );
+  const [selectedForBulkRetranslation, setSelectedForBulkRetranslation] =
+    useState<Set<string>>(new Set());
 
   // Flatten nested objects for table display
   const flattenedData = useMemo(() => {
@@ -92,19 +99,33 @@ export function TranslationTable({
     );
   }, [flattenedData, searchTerm]);
 
+  // Get statistics for display
+  const stats = useMemo(() => {
+    const missing = flattenedData.filter((item) => !item.translated).length;
+    const untranslated = flattenedData.filter(
+      (item) => item.original === item.translated && item.translated
+    ).length;
+    const translated = flattenedData.filter(
+      (item) => item.translated && item.original !== item.translated
+    ).length;
+
+    return { missing, untranslated, translated, total: flattenedData.length };
+  }, [flattenedData]);
+
   const handleEdit = (key: string, currentValue: string) => {
     setEditingKey(key);
     setEditValue(currentValue);
   };
 
   const handleSave = async (key: string) => {
+    if (isEditLoading) return;
+
     try {
       await onEdit(key, editValue);
       setEditingKey(null);
       setEditValue('');
-      toast.success('Translation updated');
     } catch (error) {
-      toast.error('Failed to update translation');
+      // Error handling is done in the parent component
     }
   };
 
@@ -114,12 +135,13 @@ export function TranslationTable({
   };
 
   const handleRetranslate = async (key: string) => {
+    if (isRetranslateLoading) return;
+
     setRetranslatingKeys((prev) => new Set([...prev, key]));
     try {
       await onRetranslate([key]);
-      toast.success('Re-translation completed');
     } catch (error) {
-      toast.error('Re-translation failed');
+      // Error handling is done in the parent component
     } finally {
       setRetranslatingKeys((prev) => {
         const newSet = new Set(prev);
@@ -127,6 +149,45 @@ export function TranslationTable({
         return newSet;
       });
     }
+  };
+
+  const handleBulkRetranslate = async () => {
+    if (selectedForBulkRetranslation.size === 0 || isRetranslateLoading) return;
+
+    const keys = Array.from(selectedForBulkRetranslation);
+    setRetranslatingKeys(new Set(keys));
+
+    try {
+      await onRetranslate(keys);
+      setSelectedForBulkRetranslation(new Set());
+    } catch (error) {
+      // Error handling is done in the parent component
+    } finally {
+      setRetranslatingKeys(new Set());
+    }
+  };
+
+  const toggleBulkSelection = (key: string) => {
+    setSelectedForBulkRetranslation((prev) => {
+      const newSet = new Set(prev);
+      if (newSet.has(key)) {
+        newSet.delete(key);
+      } else {
+        newSet.add(key);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAllUntranslated = () => {
+    const untranslatedKeys = flattenedData
+      .filter((item) => !item.translated || item.original === item.translated)
+      .map((item) => item.key);
+    setSelectedForBulkRetranslation(new Set(untranslatedKeys));
+  };
+
+  const clearSelection = () => {
+    setSelectedForBulkRetranslation(new Set());
   };
 
   const getRowClassName = (item: FlattenedItem) => {
@@ -162,9 +223,9 @@ export function TranslationTable({
 
   return (
     <Card className="overflow-hidden shadow-sm">
-      {/* Header with search */}
+      {/* Enhanced header with statistics and bulk actions */}
       <div className="border-b border-border p-4 bg-gradient-to-r from-muted/50 to-muted/30">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between mb-4">
           <div className="flex items-center space-x-4">
             <div className="flex items-center space-x-2">
               <div className="w-8 h-8 bg-gradient-to-br from-primary to-secondary rounded-lg flex items-center justify-center">
@@ -174,6 +235,8 @@ export function TranslationTable({
                 Translation Table
               </h3>
             </div>
+
+            {/* Statistics display */}
             <div className="flex items-center space-x-2">
               <Badge variant="outline" className="border-primary/30">
                 {filteredData.length} items
@@ -181,8 +244,30 @@ export function TranslationTable({
               <Badge variant="outline" className="border-accent/30">
                 {sourceLanguage.toUpperCase()} → {targetLanguage.toUpperCase()}
               </Badge>
+              <Badge
+                variant="outline"
+                className="border-green-500/30 text-green-700"
+              >
+                {stats.translated} translated
+              </Badge>
+              <Badge
+                variant="outline"
+                className="border-yellow-500/30 text-yellow-700"
+              >
+                {stats.untranslated} untranslated
+              </Badge>
+              {stats.missing > 0 && (
+                <Badge
+                  variant="outline"
+                  className="border-red-500/30 text-red-700"
+                >
+                  {stats.missing} missing
+                </Badge>
+              )}
             </div>
           </div>
+
+          {/* Search */}
           <div className="relative">
             <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 w-4 h-4 text-muted-foreground" />
             <Input
@@ -193,6 +278,50 @@ export function TranslationTable({
             />
           </div>
         </div>
+
+        {/* Bulk actions */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center space-x-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={selectAllUntranslated}
+              disabled={stats.missing + stats.untranslated === 0}
+            >
+              Select Untranslated ({stats.missing + stats.untranslated})
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={clearSelection}
+              disabled={selectedForBulkRetranslation.size === 0}
+            >
+              Clear Selection
+            </Button>
+          </div>
+
+          {selectedForBulkRetranslation.size > 0 && (
+            <div className="flex items-center space-x-2">
+              <span className="text-sm text-muted-foreground">
+                {selectedForBulkRetranslation.size} selected
+              </span>
+              <Button
+                variant="default"
+                size="sm"
+                onClick={handleBulkRetranslate}
+                disabled={isRetranslateLoading}
+                className="bg-primary hover:bg-primary/90"
+              >
+                {isRetranslateLoading ? (
+                  <Loader2 className="w-4 h-4 mr-1 animate-spin" />
+                ) : (
+                  <RotateCcw className="w-4 h-4 mr-1" />
+                )}
+                Retranslate Selected
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Table */}
@@ -200,6 +329,9 @@ export function TranslationTable({
         <table className="w-full">
           <thead className="bg-gradient-to-r from-muted/70 to-muted/50 sticky top-0 z-10">
             <tr>
+              <th className="text-left p-4 font-semibold text-muted-foreground text-xs uppercase tracking-wider border-r border-border/50 w-12">
+                Select
+              </th>
               <th className="text-left p-4 font-semibold text-muted-foreground text-xs uppercase tracking-wider border-r border-border/50">
                 Key
               </th>
@@ -223,11 +355,24 @@ export function TranslationTable({
                 key={item.key}
                 className={`border-b border-border/50 ${getRowClassName(item)}`}
               >
+                {/* Selection checkbox */}
+                <td className="p-4 border-r border-border/30">
+                  <input
+                    type="checkbox"
+                    checked={selectedForBulkRetranslation.has(item.key)}
+                    onChange={() => toggleBulkSelection(item.key)}
+                    className="rounded border-border/50 text-primary focus:ring-primary"
+                  />
+                </td>
+
+                {/* Key */}
                 <td className="p-4 border-r border-border/30">
                   <code className="text-sm font-mono bg-muted/50 px-2 py-1 rounded-md text-foreground break-all">
                     {item.key}
                   </code>
                 </td>
+
+                {/* Original */}
                 <td className="p-4 border-r border-border/30">
                   <div className="max-w-xs">
                     <p className="text-sm text-foreground break-words leading-relaxed">
@@ -235,6 +380,8 @@ export function TranslationTable({
                     </p>
                   </div>
                 </td>
+
+                {/* Translation */}
                 <td className="p-4 border-r border-border/30">
                   <div className="max-w-xs">
                     {editingKey === item.key ? (
@@ -250,15 +397,21 @@ export function TranslationTable({
                           <Button
                             size="sm"
                             onClick={() => handleSave(item.key)}
+                            disabled={isEditLoading}
                             className="h-7 px-3 bg-accent hover:bg-accent/90"
                           >
-                            <Check className="w-3 h-3 mr-1" />
+                            {isEditLoading ? (
+                              <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                            ) : (
+                              <Check className="w-3 h-3 mr-1" />
+                            )}
                             Save
                           </Button>
                           <Button
                             size="sm"
                             variant="outline"
                             onClick={handleCancel}
+                            disabled={isEditLoading}
                             className="h-7 px-3"
                           >
                             <X className="w-3 h-3 mr-1" />
@@ -278,9 +431,13 @@ export function TranslationTable({
                     )}
                   </div>
                 </td>
+
+                {/* Status */}
                 <td className="p-4 border-r border-border/30">
                   {getStatusBadge(item)}
                 </td>
+
+                {/* Actions */}
                 <td className="p-4">
                   <div className="flex items-center space-x-2">
                     {editingKey !== item.key && (
@@ -289,19 +446,27 @@ export function TranslationTable({
                           size="sm"
                           variant="outline"
                           onClick={() => handleEdit(item.key, item.translated)}
+                          disabled={isEditLoading}
                           className="h-8 w-8 p-0 hover:bg-primary/10 hover:border-primary/50"
                         >
-                          <Edit3 className="w-3 h-3" />
+                          {isEditLoading ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Edit3 className="w-3 h-3" />
+                          )}
                         </Button>
                         <Button
                           size="sm"
                           variant="outline"
                           onClick={() => handleRetranslate(item.key)}
-                          disabled={retranslatingKeys.has(item.key)}
+                          disabled={
+                            retranslatingKeys.has(item.key) ||
+                            isRetranslateLoading
+                          }
                           className="h-8 w-8 p-0 hover:bg-secondary/10 hover:border-secondary/50"
                         >
                           {retranslatingKeys.has(item.key) ? (
-                            <div className="w-3 h-3 border border-muted-foreground/30 border-t-muted-foreground rounded-full animate-spin" />
+                            <Loader2 className="w-3 h-3 animate-spin" />
                           ) : (
                             <RotateCcw className="w-3 h-3" />
                           )}
