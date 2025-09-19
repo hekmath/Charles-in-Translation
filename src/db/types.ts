@@ -6,6 +6,7 @@ import {
   translationChunks,
   users,
 } from './schema';
+import type { JsonObject } from '@/types/json';
 
 // Select types (what you get from queries)
 export type Project = InferSelectModel<typeof projects>;
@@ -79,7 +80,7 @@ export interface ChunkData {
 export interface TranslationCoordinatorEventData {
   projectId: number;
   taskId: number;
-  data: Record<string, any>;
+  data: JsonObject;
   sourceLanguage: string;
   targetLanguage: string;
   selectedKeys?: string[];

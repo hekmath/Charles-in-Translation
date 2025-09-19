@@ -2,23 +2,23 @@
 import { inngest } from '../client';
 import { dbService } from '@/lib/db-service';
 import type { TranslationCoordinatorEventData, ChunkData } from '@/db/types';
+import { isJsonObject, type JsonObject, type JsonValue } from '@/types/json';
 
 function chunkObject(
-  obj: Record<string, any>,
+  obj: JsonObject,
   chunkSize: number = 15 // Reduced from 50 to 25 for better reliability
 ): Array<Array<ChunkData>> {
-  const flattenObject = (obj: any, prefix = ''): Array<ChunkData> => {
+  const flattenObject = (value: JsonObject, prefix = ''): Array<ChunkData> => {
     const items: Array<ChunkData> = [];
-    for (const [key, value] of Object.entries(obj)) {
+    for (const [key, entryValue] of Object.entries(value) as Array<[
+      string,
+      JsonValue,
+    ]>) {
       const fullKey = prefix ? `${prefix}.${key}` : key;
-      if (
-        typeof value === 'object' &&
-        value !== null &&
-        !Array.isArray(value)
-      ) {
-        items.push(...flattenObject(value, fullKey));
+      if (isJsonObject(entryValue)) {
+        items.push(...flattenObject(entryValue, fullKey));
       } else {
-        items.push({ key: fullKey, value: String(value) });
+        items.push({ key: fullKey, value: String(entryValue) });
       }
     }
     return items;
@@ -70,21 +70,20 @@ export const coordinateTranslation = inngest.createFunction(
 
     // Step 2: Prepare and chunk the data
     const { chunks, totalKeys } = await step.run('prepare-chunks', async () => {
-      let dataToTranslate = data;
+      let dataToTranslate: JsonObject = data;
 
       // Filter data if specific keys are selected
       if (selectedKeys && selectedKeys.length > 0) {
         dataToTranslate = {};
-        const flatData: Record<string, any> = {};
+        const flatData: Record<string, JsonValue> = {};
 
-        const flattenForSelection = (obj: any, prefix = '') => {
-          for (const [key, value] of Object.entries(obj)) {
+        const flattenForSelection = (obj: JsonObject, prefix = ''): void => {
+          for (const [key, value] of Object.entries(obj) as Array<[
+            string,
+            JsonValue,
+          ]>) {
             const fullKey = prefix ? `${prefix}.${key}` : key;
-            if (
-              typeof value === 'object' &&
-              value !== null &&
-              !Array.isArray(value)
-            ) {
+            if (isJsonObject(value)) {
               flattenForSelection(value, fullKey);
             } else {
               flatData[fullKey] = value;
@@ -94,17 +93,28 @@ export const coordinateTranslation = inngest.createFunction(
         flattenForSelection(data);
 
         for (const selectedKey of selectedKeys) {
-          if (flatData[selectedKey] !== undefined) {
+          if (!Object.prototype.hasOwnProperty.call(flatData, selectedKey)) {
+            continue;
+          }
+
             const keys = selectedKey.split('.');
-            let current = dataToTranslate as any;
-            for (let i = 0; i < keys.length - 1; i++) {
-              if (!current[keys[i]]) current[keys[i]] = {};
-              current = current[keys[i]];
-            }
-            current[keys[keys.length - 1]] = flatData[selectedKey];
+          let current: JsonObject = dataToTranslate;
+          for (let i = 0; i < keys.length - 1; i += 1) {
+            const segment = keys[i];
+          const existingValue = current[segment];
+
+          if (!isJsonObject(existingValue)) {
+            const nextLevel: JsonObject = {};
+            current[segment] = nextLevel;
+            current = nextLevel;
+          } else {
+            current = existingValue;
           }
         }
+        const selectedValue = flatData[selectedKey];
+        current[keys[keys.length - 1]] = selectedValue;
       }
+    }
 
       const chunks = chunkObject(dataToTranslate, 25);
       const totalKeys = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
@@ -210,15 +220,23 @@ export const coordinateTranslation = inngest.createFunction(
       );
 
       // Apply translations back to full object if only selected keys were translated
-      let finalResult = translatedData;
+      let finalResult: JsonObject = translatedData;
       if (selectedKeys && selectedKeys.length > 0) {
         finalResult = { ...data };
         for (const translation of allTranslations) {
           const keys = translation.key.split('.');
-          let current = finalResult as any;
-          for (let i = 0; i < keys.length - 1; i++) {
-            if (!current[keys[i]]) current[keys[i]] = {};
-            current = current[keys[i]];
+          let current: JsonObject = finalResult;
+          for (let i = 0; i < keys.length - 1; i += 1) {
+            const segment = keys[i];
+            const existingValue = current[segment];
+
+            if (!isJsonObject(existingValue)) {
+              const nextLevel: JsonObject = {};
+              current[segment] = nextLevel;
+              current = nextLevel;
+            } else {
+              current = existingValue;
+            }
           }
           current[keys[keys.length - 1]] = translation.translatedText;
         }
@@ -246,23 +264,27 @@ export const coordinateTranslation = inngest.createFunction(
 );
 
 // Helper function to rebuild nested object from flat translations
-function rebuildObject(
-  translations: Array<{ key: string; value: string }>
-): Record<string, any> {
-  const result: Record<string, any> = {};
+function rebuildObject(translations: Array<{ key: string; value: string }>): JsonObject {
+  const result: JsonObject = {};
 
   for (const { key, value } of translations) {
-    const keys = key.split('.');
-    let current = result;
+    const segments = key.split('.');
+    let current: JsonObject = result;
 
-    for (let i = 0; i < keys.length - 1; i++) {
-      if (!(keys[i] in current)) {
-        current[keys[i]] = {};
+    for (let i = 0; i < segments.length - 1; i += 1) {
+      const segment = segments[i];
+      const existingValue = current[segment];
+
+      if (!isJsonObject(existingValue)) {
+        const nextLevel: JsonObject = {};
+        current[segment] = nextLevel;
+        current = nextLevel;
+      } else {
+        current = existingValue;
       }
-      current = current[keys[i]];
     }
 
-    current[keys[keys.length - 1]] = value;
+    current[segments[segments.length - 1]] = value;
   }
 
   return result;

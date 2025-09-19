@@ -32,10 +32,11 @@ import {
   ArrowDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { isJsonObject, type JsonObject, type JsonValue } from '@/types/json';
 
 interface TranslationTableProps {
-  originalData: Record<string, any>;
-  translatedData: Record<string, any>;
+  originalData: JsonObject;
+  translatedData: JsonObject;
   onEdit: (key: string, value: string) => Promise<void>;
   onRetranslate: (keys: string[]) => Promise<void>;
   onRefresh?: () => Promise<void>;
@@ -57,6 +58,7 @@ interface FlattenedItem {
 
 type SortField = 'key' | 'original' | 'translated' | 'status';
 type SortDirection = 'asc' | 'desc';
+type StatusFilter = 'all' | 'missing' | 'untranslated' | 'translated';
 
 export function TranslationTable({
   originalData,
@@ -88,26 +90,32 @@ export function TranslationTable({
   const [sortDirection, setSortDirection] = useState<SortDirection>('asc');
 
   // Status filter
-  const [statusFilter, setStatusFilter] = useState<
-    'all' | 'missing' | 'untranslated' | 'translated'
-  >('all');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
 
   // Flatten nested objects for table display
   const flattenedData = useMemo(() => {
-    const flattenObject = (obj: any, prefix = ''): Record<string, string> => {
+    const flattenObject = (
+      obj: JsonValue,
+      prefix = ''
+    ): Record<string, string> => {
       const flattened: Record<string, string> = {};
-      Object.entries(obj).forEach(([key, value]) => {
+
+      if (!isJsonObject(obj)) {
+        return flattened;
+      }
+
+      for (const [key, value] of Object.entries(obj) as Array<[
+        string,
+        JsonValue,
+      ]>) {
         const fullKey = prefix ? `${prefix}.${key}` : key;
-        if (
-          typeof value === 'object' &&
-          value !== null &&
-          !Array.isArray(value)
-        ) {
+        if (isJsonObject(value)) {
           Object.assign(flattened, flattenObject(value, fullKey));
         } else {
           flattened[fullKey] = String(value);
         }
-      });
+      }
+
       return flattened;
     };
 
@@ -266,7 +274,7 @@ export function TranslationTable({
       setEditingKey(null);
       setEditValue('');
     } catch (error) {
-      // Error handling is done in the parent component
+      console.error(`Failed to save translation for key ${key}:`, error);
     }
   };
 
@@ -282,7 +290,7 @@ export function TranslationTable({
     try {
       await onRetranslate([key]);
     } catch (error) {
-      // Error handling is done in the parent component
+      console.error(`Failed to retranslate key ${key}:`, error);
     } finally {
       setRetranslatingKeys((prev) => {
         const newSet = new Set(prev);
@@ -302,7 +310,7 @@ export function TranslationTable({
       await onRetranslate(keys);
       setSelectedForBulkRetranslation(new Set());
     } catch (error) {
-      // Error handling is done in the parent component
+      console.error('Failed to trigger bulk retranslation:', error);
     } finally {
       setRetranslatingKeys(new Set());
     }
@@ -315,6 +323,7 @@ export function TranslationTable({
       await onRefresh();
       toast.success('Translation data refreshed');
     } catch (error) {
+      console.error('Failed to refresh translation data:', error);
       toast.error('Failed to refresh data');
     }
   };
@@ -472,8 +481,8 @@ export function TranslationTable({
               <span className="text-sm text-muted-foreground">Filter:</span>
               <Select
                 value={statusFilter}
-                onValueChange={(value: any) => {
-                  setStatusFilter(value);
+                onValueChange={(value) => {
+                  setStatusFilter(value as StatusFilter);
                   resetPagination();
                 }}
               >
@@ -612,7 +621,7 @@ export function TranslationTable({
             </tr>
           </thead>
           <tbody>
-            {paginatedData.map((item, index) => (
+            {paginatedData.map((item) => (
               <tr
                 key={item.key}
                 className={`border-b border-border/50 ${getRowClassName(item)}`}

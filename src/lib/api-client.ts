@@ -1,7 +1,13 @@
-import type { Project, TranslationTask, Translation } from '@/db/types';
+import type {
+  Project,
+  TranslationTask,
+  Translation,
+  TranslationProgressDetail,
+} from '@/db/types';
+import type { JsonObject } from '@/types/json';
 
 // Base API response types
-interface ApiResponse<T = any> {
+interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
   message?: string;
@@ -14,7 +20,7 @@ interface CreateProjectRequest {
   name: string;
   description?: string;
   sourceLanguage: string;
-  originalData: Record<string, any>;
+  originalData: JsonObject;
 }
 
 interface CreateTranslationTaskRequest {
@@ -25,7 +31,7 @@ interface CreateTranslationTaskRequest {
 
 interface UpdateTranslationTaskRequest {
   status?: 'pending' | 'processing' | 'completed' | 'failed';
-  translatedData?: Record<string, any>;
+  translatedData?: JsonObject;
   error?: string;
 }
 
@@ -134,7 +140,7 @@ export const translationTasksApi = {
 export const translationProgressApi = {
   // GET /api/translation-progress?projectId=X&targetLanguage=Y
   get: (projectId: number, targetLanguage: string) =>
-    apiRequest(
+    apiRequest<TranslationProgressDetail | null>(
       `/api/translation-progress?projectId=${projectId}&targetLanguage=${targetLanguage}`
     ),
 };
@@ -159,7 +165,7 @@ export const translationsApi = {
 export const translateApi = {
   // POST /api/translate
   translate: (data: {
-    data: Record<string, any>;
+    data: JsonObject;
     sourceLanguage: string;
     targetLanguage: string;
     selectedKeys?: string[];

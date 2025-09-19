@@ -4,6 +4,8 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { queryKeys } from '@/lib/react-query-client';
+import type { TranslationTask } from '@/db/types';
+import type { JsonObject } from '@/types/json';
 import {
   useTranslationTasks,
   useCreateTranslationTask,
@@ -17,7 +19,7 @@ interface UseTranslationStateProps {
   currentProjectId: number | null;
   targetLanguage: string;
   sourceLanguage: string;
-  jsonData: Record<string, any> | null;
+  jsonData: JsonObject | null;
 }
 
 export function useTranslationState({
@@ -27,10 +29,7 @@ export function useTranslationState({
   jsonData,
 }: UseTranslationStateProps) {
   // Local state
-  const [translatedData, setTranslatedData] = useState<Record<
-    string,
-    any
-  > | null>(null);
+  const [translatedData, setTranslatedData] = useState<JsonObject | null>(null);
   const [isTranslating, setIsTranslating] = useState(false);
   const [selectedKeys, setSelectedKeys] = useState<string[]>([]);
   const [showProgress, setShowProgress] = useState(false);
@@ -73,7 +72,10 @@ export function useTranslationState({
 
   // Memoized cache restoration function with error handling
   const restoreFromCache = useCallback(
-    (translations: any[], data: Record<string, any>) => {
+    (
+      translations: Array<{ key: string; translatedText: string }>,
+      data: JsonObject
+    ) => {
       try {
         const translatedResult = rebuildTranslatedData(translations, data);
         if (translatedResult) {
@@ -91,25 +93,28 @@ export function useTranslationState({
   );
 
   // Memoized completion handler
-  const handleCompletion = useCallback((taskId: number, task: any) => {
-    console.log('Completed task found after cache refresh!', task);
+  const handleCompletion = useCallback(
+    (taskId: number, task: TranslationTask) => {
+      console.log('Completed task found after cache refresh!', task);
 
-    // Only replace translatedData for full translations (many keys)
-    // For single key retranslations, let cache restoration handle the update
-    if (task.keys && task.keys.length > 1) {
-      setTranslatedData(task.translatedData);
-      toast.success('Translation completed!');
-    } else {
-      // Single key retranslation - just reset state and let cache handle it
-      console.log(
-        'Single key retranslation completed, using cache restoration'
-      );
-    }
+      // Only replace translatedData for full translations (many keys)
+      // For single key retranslations, let cache restoration handle the update
+      if (task.keys && task.keys.length > 1) {
+        setTranslatedData(task.translatedData as JsonObject | null);
+        toast.success('Translation completed!');
+      } else {
+        // Single key retranslation - just reset state and let cache handle it
+        console.log(
+          'Single key retranslation completed, using cache restoration'
+        );
+      }
 
-    setIsTranslating(false);
-    setShowProgress(false);
-    activeTranslationRef.current = null;
-  }, []);
+      setIsTranslating(false);
+      setShowProgress(false);
+      activeTranslationRef.current = null;
+    },
+    []
+  );
 
   // Cleanup on unmount
   useEffect(() => {
@@ -157,7 +162,7 @@ export function useTranslationState({
             ),
           });
         }
-      }, 1000); // 1 second delay to ensure DB consistency
+      }, 3000); // 1 second delay to ensure DB consistency
     }
 
     if (translationProgress.status === 'failed') {
@@ -170,7 +175,7 @@ export function useTranslationState({
       );
     }
   }, [
-    translationProgress?.status,
+    translationProgress,
     isTranslating,
     currentProjectId,
     targetLanguage,
@@ -250,7 +255,7 @@ export function useTranslationState({
     isTranslating,
     targetLanguage,
     restoreFromCache,
-    // Removed translatedData from dependencies to prevent infinite loops
+    translatedData,
   ]);
 
   // Handle translation with useCallback to prevent unnecessary re-renders

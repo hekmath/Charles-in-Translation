@@ -11,8 +11,9 @@ import {
   type NewTranslationTask,
   type NewTranslation,
   type ChunkStatus,
+  type TranslationProgressDetail,
 } from '@/db/types';
-import { eq, and, desc, asc, sum, count, sql, inArray } from 'drizzle-orm';
+import { eq, and, desc, asc, count, sql, inArray } from 'drizzle-orm';
 
 // Projects Service with fixed delete method
 export class ProjectsService {
@@ -211,7 +212,9 @@ export class TranslationTasksService {
   }
 
   // Get enhanced progress with chunk details
-  static async getProgress(taskId: number) {
+  static async getProgress(
+    taskId: number
+  ): Promise<TranslationProgressDetail | null> {
     const [task] = await db
       .select()
       .from(translationTasks)
@@ -251,21 +254,24 @@ export class TranslationTasksService {
       completedChunks: task.completedChunks || 0,
       failedChunks: task.failedChunks || 0,
       estimatedTimeRemaining,
-      error: task.error,
+      error: task.error ?? undefined,
       chunks: chunks.map((chunk) => ({
         index: chunk.chunkIndex,
         status: chunk.status,
-        itemsCount: chunk.itemsCount,
-        translatedCount: chunk.translatedCount,
-        error: chunk.errorMessage,
+        itemsCount: chunk.itemsCount ?? 0,
+        translatedCount: chunk.translatedCount ?? 0,
+        error: chunk.errorMessage ?? undefined,
       })),
-      startedAt: task.startedAt,
-      completedAt: task.completedAt,
-    };
+      startedAt: task.startedAt ?? undefined,
+      completedAt: task.completedAt ?? undefined,
+    } satisfies TranslationProgressDetail;
   }
 
   // Get progress for a specific project/language combination
-  static async getProjectProgress(projectId: number, targetLanguage: string) {
+  static async getProjectProgress(
+    projectId: number,
+    targetLanguage: string
+  ): Promise<TranslationProgressDetail | null> {
     const [task] = await db
       .select()
       .from(translationTasks)
@@ -307,7 +313,15 @@ export class TranslationChunksService {
     translatedCount?: number,
     errorMessage?: string
   ) {
-    const updates: any = {
+    const updates: {
+      status: ChunkStatus;
+      updatedAt: Date;
+      itemsCount?: number;
+      translatedCount?: number;
+      errorMessage?: string;
+      startedAt?: Date;
+      completedAt?: Date;
+    } = {
       status,
       updatedAt: new Date(),
     };

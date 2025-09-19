@@ -2,10 +2,11 @@
 
 import { useState, useEffect } from 'react';
 import { useProjects, useProject, useCreateProject } from '@/lib/hooks/use-api';
+import type { JsonObject } from '@/types/json';
 
 export function useProjectState() {
   // Local state
-  const [jsonData, setJsonData] = useState<Record<string, any> | null>(null);
+  const [jsonData, setJsonData] = useState<JsonObject | null>(null);
   const [sourceLanguage, setSourceLanguage] = useState('en');
   const [targetLanguage, setTargetLanguage] = useState('');
   const [currentProjectId, setCurrentProjectId] = useState<number | null>(null);
@@ -30,7 +31,7 @@ export function useProjectState() {
   }, [currentProject, currentProjectId]);
 
   // Handle file upload
-  const handleFileUpload = async (data: Record<string, any>) => {
+  const handleFileUpload = async (data: JsonObject) => {
     try {
       const result = await createProjectMutation.mutateAsync({
         name: `Project ${new Date().toLocaleDateString()}`,

@@ -1,7 +1,7 @@
 'use client';
 
 import type React from 'react';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Editor from '@monaco-editor/react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -19,10 +19,11 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { editor } from 'monaco-editor';
+import { isJsonObject, type JsonObject, type JsonValue } from '@/types/json';
 
 interface JsonEditorProps {
-  data: Record<string, any>;
-  onChange: (data: Record<string, any>) => void;
+  data: JsonObject;
+  onChange: (data: JsonObject) => void;
   selectedKeys: string[];
   onSelectionChange: (keys: string[]) => void;
   language: string;
@@ -44,43 +45,41 @@ export function JsonEditor({
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
   // Extract all keys from nested JSON
-  const extractKeys = (
-    obj: any,
-    prefix = ''
-  ): { allKeys: string[]; translatableKeys: string[] } => {
-    const allKeys: string[] = [];
-    const translatableKeys: string[] = [];
+  const extractKeys = useCallback(
+    (
+      obj: JsonValue,
+      prefix = ''
+    ): { allKeys: string[]; translatableKeys: string[] } => {
+      const collectedAllKeys: string[] = [];
+      const collectedTranslatableKeys: string[] = [];
 
-    if (typeof obj === 'object' && obj !== null && !Array.isArray(obj)) {
-      Object.entries(obj).forEach(([key, value]) => {
-        const fullKey = prefix ? `${prefix}.${key}` : key;
-        allKeys.push(fullKey);
+      if (isJsonObject(obj)) {
+        for (const [key, value] of Object.entries(obj) as Array<[
+          string,
+          JsonValue,
+        ]>) {
+          const fullKey = prefix ? `${prefix}.${key}` : key;
+          collectedAllKeys.push(fullKey);
 
-        // Count all leaf values (strings, numbers, booleans, null, arrays) - matches backend logic
-        if (
-          !(
-            typeof value === 'object' &&
-            value !== null &&
-            !Array.isArray(value)
-          )
-        ) {
-          translatableKeys.push(fullKey);
+          if (!isJsonObject(value)) {
+            collectedTranslatableKeys.push(fullKey);
+          }
+
+          if (isJsonObject(value)) {
+            const nested = extractKeys(value, fullKey);
+            collectedAllKeys.push(...nested.allKeys);
+            collectedTranslatableKeys.push(...nested.translatableKeys);
+          }
         }
+      }
 
-        if (
-          typeof value === 'object' &&
-          value !== null &&
-          !Array.isArray(value)
-        ) {
-          const nested = extractKeys(value, fullKey);
-          allKeys.push(...nested.allKeys);
-          translatableKeys.push(...nested.translatableKeys);
-        }
-      });
-    }
-
-    return { allKeys, translatableKeys };
-  };
+      return {
+        allKeys: collectedAllKeys,
+        translatableKeys: collectedTranslatableKeys,
+      };
+    },
+    []
+  );
 
   // Get all child keys for a given parent key
   const getChildKeys = (parentKey: string): string[] => {
@@ -142,7 +141,7 @@ export function JsonEditor({
     } = extractKeys(data);
     setAllKeys(extractedAllKeys);
     setTranslatableKeys(extractedTranslatableKeys);
-  }, [data]);
+  }, [data, extractKeys]);
 
   const handleEditorChange = (value: string | undefined) => {
     if (!value) return;
@@ -150,10 +149,14 @@ export function JsonEditor({
     setJsonString(value);
 
     try {
-      const parsedData = JSON.parse(value);
+      const parsedData = JSON.parse(value) as unknown;
+      if (!isJsonObject(parsedData)) {
+        throw new Error('Parsed JSON is not an object');
+      }
       setIsValid(true);
       onChange(parsedData);
     } catch (error) {
+      console.error('Failed to parse JSON input:', error);
       setIsValid(false);
     }
   };
@@ -238,6 +241,7 @@ export function JsonEditor({
       await navigator.clipboard.writeText(jsonString);
       toast.success('JSON copied to clipboard');
     } catch (error) {
+      console.error('Failed to copy JSON to clipboard:', error);
       toast.error('Failed to copy to clipboard');
     }
   };
@@ -257,30 +261,33 @@ export function JsonEditor({
 
   const formatJson = () => {
     try {
-      const parsed = JSON.parse(jsonString);
+      const parsed = JSON.parse(jsonString) as unknown;
+      if (!isJsonObject(parsed)) {
+        throw new Error('Parsed JSON is not an object');
+      }
       const formatted = JSON.stringify(parsed, null, 2);
       setJsonString(formatted);
       onChange(parsed);
       toast.success('JSON formatted');
     } catch (error) {
+      console.error('Failed to format JSON:', error);
       toast.error('Invalid JSON - cannot format');
     }
   };
 
   // Render tree view with proper hierarchical selection
   const renderTreeItem = (
-    obj: any,
+    obj: JsonValue,
     prefix = '',
     level = 0
   ): React.JSX.Element[] => {
-    if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
+    if (!isJsonObject(obj)) {
       return [];
     }
 
-    return Object.entries(obj).map(([key, value]) => {
+    return (Object.entries(obj) as Array<[string, JsonValue]>).map(([key, value]) => {
       const fullKey = prefix ? `${prefix}.${key}` : key;
-      const hasChildNodes =
-        typeof value === 'object' && value !== null && !Array.isArray(value);
+      const hasChildNodes = isJsonObject(value);
       const isExpanded = expandedKeys.has(fullKey);
       const selectionState = getSelectionState(fullKey);
       const isTranslatable = typeof value === 'string' && value.trim() !== '';

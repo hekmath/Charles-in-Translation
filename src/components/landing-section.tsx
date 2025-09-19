@@ -3,9 +3,10 @@
 'use client';
 
 import { FileUpload } from '@/components/file-upload';
+import type { JsonObject } from '@/types/json';
 
 interface LandingSectionProps {
-  onUpload: (data: Record<string, any>) => Promise<void>;
+  onUpload: (data: JsonObject) => Promise<void>;
   isLoading: boolean;
 }
 

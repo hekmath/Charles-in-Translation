@@ -121,8 +121,6 @@ export default function Home() {
               currentProject={currentProject}
               sourceLanguage={sourceLanguage}
               targetLanguage={targetLanguage}
-              translatedData={translatedData}
-              isTranslating={isTranslating}
             />
 
             <TranslationProgress

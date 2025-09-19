@@ -23,14 +23,16 @@ import {
   useSaveTranslation,
   useRetranslate, // New hook for retranslation
 } from '@/lib/hooks/use-api';
+import { rebuildTranslatedData } from '@/lib/translation-helpers';
+import { isJsonObject, type JsonObject, type JsonValue } from '@/types/json';
 
 interface ComparisonViewProps {
-  originalData: Record<string, any>;
-  translatedData: Record<string, any>;
+  originalData: JsonObject;
+  translatedData: JsonObject;
   sourceLanguage: string;
   targetLanguage: string;
   projectId: number;
-  onTranslationUpdate?: (newTranslatedData: Record<string, any>) => void;
+  onTranslationUpdate?: (newTranslatedData: JsonObject) => void;
 }
 
 export function ComparisonView({
@@ -102,7 +104,7 @@ export function ComparisonView({
       );
 
       // Force refetch to ensure fresh data and get the result
-      const freshTranslationsQuery = await queryClient.refetchQueries({
+      await queryClient.refetchQueries({
         queryKey: queryKeys.translations.list(projectId, targetLanguage),
       });
 
@@ -113,12 +115,12 @@ export function ComparisonView({
 
       // If we have fresh translations and the callback exists, rebuild and update the translated data
       if (freshTranslations && onTranslationUpdate && originalData) {
-        const rebuiltTranslatedData = rebuildTranslatedData(
+        const rebuiltTranslated = rebuildTranslatedData(
           freshTranslations,
           originalData
         );
-        if (rebuiltTranslatedData) {
-          onTranslationUpdate(rebuiltTranslatedData);
+        if (rebuiltTranslated) {
+          onTranslationUpdate(rebuiltTranslated);
         }
       }
 
@@ -132,38 +134,6 @@ export function ComparisonView({
     } finally {
       setIsRefreshLoading(false);
     }
-  };
-
-  // Helper function to rebuild translated data from cached translations
-  const rebuildTranslatedData = (
-    translations: Array<{ key: string; translatedText: string }>,
-    originalData: Record<string, any>
-  ): Record<string, any> | null => {
-    const translatedMap = new Map(
-      translations.map((t) => [t.key, t.translatedText])
-    );
-
-    const rebuild = (obj: any, prefix = ''): any => {
-      if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
-        return obj;
-      }
-      const result: any = {};
-      for (const [key, value] of Object.entries(obj)) {
-        const fullKey = prefix ? `${prefix}.${key}` : key;
-        if (
-          typeof value === 'object' &&
-          value !== null &&
-          !Array.isArray(value)
-        ) {
-          result[key] = rebuild(value, fullKey);
-        } else {
-          result[key] = translatedMap.get(fullKey) || value;
-        }
-      }
-      return result;
-    };
-
-    return rebuild(originalData);
   };
 
   // Enhanced retranslate function with proper cache invalidation
@@ -211,14 +181,20 @@ export function ComparisonView({
 
       // Update local state immediately for responsiveness
       if (translatedData && onTranslationUpdate) {
-        const updated = { ...translatedData };
+        const updated: JsonObject = { ...translatedData };
         const keys = key.split('.');
-        let current = updated;
-        for (let i = 0; i < keys.length - 1; i++) {
-          if (!current[keys[i]]) {
-            current[keys[i]] = {};
+        let current: JsonObject = updated;
+        for (let i = 0; i < keys.length - 1; i += 1) {
+          const segment = keys[i];
+          const existingValue = current[segment];
+
+          if (!isJsonObject(existingValue)) {
+            const nextLevel: JsonObject = {};
+            current[segment] = nextLevel;
+            current = nextLevel;
+          } else {
+            current = existingValue;
           }
-          current = current[keys[i]];
         }
         current[keys[keys.length - 1]] = value;
         onTranslationUpdate(updated);
@@ -232,20 +208,21 @@ export function ComparisonView({
     }
   };
 
-  const flattenJson = (obj: any, prefix = ''): Record<string, string> => {
+  const flattenJson = (
+    obj: JsonObject,
+    prefix = ''
+  ): Record<string, string> => {
     const flattened: Record<string, string> = {};
-    Object.entries(obj).forEach(([key, value]) => {
+    (Object.entries(obj) as Array<[string, JsonValue]>).forEach(
+      ([key, value]) => {
       const fullKey = prefix ? `${prefix}.${key}` : key;
-      if (
-        typeof value === 'object' &&
-        value !== null &&
-        !Array.isArray(value)
-      ) {
+      if (isJsonObject(value)) {
         Object.assign(flattened, flattenJson(value, fullKey));
       } else {
         flattened[fullKey] = String(value);
       }
-    });
+    }
+    );
     return flattened;
   };
 
