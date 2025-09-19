@@ -33,14 +33,14 @@ export const functionMetadata = {
     id: 'process-translation-chunk',
     description: 'Processes individual translation chunks in parallel',
     triggers: ['translation/process-chunk'],
-    concurrency: 20,
+    concurrency: 5,
     timeout: '10m',
   },
   handleTranslationCompletion: {
     id: 'handle-translation-completion',
     description: 'Handles completion events and cleanup',
     triggers: ['translation/job-completed'],
-    concurrency: 10,
+    concurrency: 5,
     timeout: '5m',
   },
 } as const;
