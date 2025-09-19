@@ -1,35 +1,39 @@
 // File location: src/lib/translation-helpers.ts
 
+import { isJsonObject, type JsonObject, type JsonValue } from '@/types/json';
+
 // Helper function to rebuild translated data from cached translations
 export function rebuildTranslatedData(
   translations: Array<{ key: string; translatedText: string }>,
-  originalData: Record<string, any>
-): Record<string, any> | null {
+  originalData: JsonObject
+): JsonObject | null {
   const translatedMap = new Map(
     translations.map((t) => [t.key, t.translatedText])
   );
 
-  const rebuild = (obj: any, prefix = ''): any => {
-    if (typeof obj !== 'object' || obj === null || Array.isArray(obj)) {
+  const rebuild = (obj: JsonValue, prefix = ''): JsonValue => {
+    if (!isJsonObject(obj)) {
       return obj;
     }
-    const result: any = {};
-    for (const [key, value] of Object.entries(obj)) {
+
+    const result: JsonObject = {};
+    for (const [key, value] of Object.entries(obj) as Array<[
+      string,
+      JsonValue,
+    ]>) {
       const fullKey = prefix ? `${prefix}.${key}` : key;
-      if (
-        typeof value === 'object' &&
-        value !== null &&
-        !Array.isArray(value)
-      ) {
+      if (isJsonObject(value)) {
         result[key] = rebuild(value, fullKey);
       } else {
-        result[key] = translatedMap.get(fullKey) || value;
+        result[key] = translatedMap.get(fullKey) ?? value;
       }
     }
+
     return result;
   };
 
-  return rebuild(originalData);
+  const rebuilt = rebuild(originalData);
+  return isJsonObject(rebuilt) ? rebuilt : null;
 }
 
 // Helper function to format time remaining

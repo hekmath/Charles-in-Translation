@@ -1,6 +1,4 @@
 'use client';
-
-import { useState } from 'react';
 import {
   FolderOpen,
   Plus,
@@ -22,6 +20,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { useDeleteProject } from '@/lib/hooks/use-api';
 import type { Project } from '@/db/types';
+import { isJsonObject, type JsonObject, type JsonValue } from '@/types/json';
 
 interface ProjectSelectorProps {
   projects: Project[];
@@ -76,23 +75,18 @@ export function ProjectSelector({
     }).format(date);
   };
 
-  const getKeyCount = (data: Record<string, any>): number => {
-    const flattenObject = (obj: any): number => {
-      let count = 0;
-      for (const [key, value] of Object.entries(obj)) {
-        if (
-          typeof value === 'object' &&
-          value !== null &&
-          !Array.isArray(value)
-        ) {
-          count += flattenObject(value);
-        } else {
-          count++;
-        }
+  const getKeyCount = (data: JsonObject): number => {
+    const countKeys = (value: JsonValue): number => {
+      if (isJsonObject(value)) {
+        return Object.values(value).reduce<number>(
+          (acc, nested) => acc + countKeys(nested),
+          0
+        );
       }
-      return count;
+      return 1;
     };
-    return flattenObject(data);
+
+    return countKeys(data);
   };
 
   return (

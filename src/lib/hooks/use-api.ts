@@ -2,7 +2,11 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/react-query-client';
 import { toast } from 'sonner';
-import type { TranslationProgressDetail } from '@/db/types';
+import type {
+  TranslationProgressDetail,
+  Translation,
+} from '@/db/types';
+import type { JsonObject } from '@/types/json';
 
 // Projects Hooks (unchanged)
 export function useProjects() {
@@ -40,7 +44,7 @@ export function useCreateProject() {
       name: string;
       description?: string;
       sourceLanguage: string;
-      originalData: Record<string, any>;
+      originalData: JsonObject;
     }) => {
       const response = await apiClient.projects.create(data);
       if (!response.success || !response.data) {
@@ -255,45 +259,55 @@ export function useSaveTranslation() {
       await queryClient.cancelQueries({ queryKey });
 
       // Snapshot the previous value
-      const previousTranslations = queryClient.getQueryData(queryKey);
+      const previousTranslations =
+        queryClient.getQueryData<Translation[] | undefined>(queryKey);
+
+      const createOptimisticTranslation = (): Translation => ({
+        id: -Date.now(),
+        projectId: variables.projectId,
+        key: variables.key,
+        sourceText: variables.sourceText,
+        translatedText: variables.translatedText,
+        sourceLanguage: variables.sourceLanguage,
+        targetLanguage: variables.targetLanguage,
+        taskId: null,
+        chunkIndex: null,
+        failed: false,
+        translatedAt: new Date(),
+        translatedBy: 'manual-edit',
+      });
 
       // Optimistically update
-      queryClient.setQueryData(queryKey, (old: any[]) => {
-        if (!old) return old;
+      queryClient.setQueryData<Translation[] | undefined>(
+        queryKey,
+        (old) => {
+          if (!old) {
+            return [createOptimisticTranslation()];
+          }
 
-        const existingIndex = old.findIndex(
-          (t) =>
-            t.key === variables.key &&
-            t.sourceLanguage === variables.sourceLanguage &&
-            t.targetLanguage === variables.targetLanguage
-        );
+          const existingIndex = old.findIndex(
+            (t) =>
+              t.key === variables.key &&
+              t.sourceLanguage === variables.sourceLanguage &&
+              t.targetLanguage === variables.targetLanguage
+          );
 
-        if (existingIndex >= 0) {
-          // Update existing translation
-          const updated = [...old];
-          updated[existingIndex] = {
-            ...updated[existingIndex],
-            translatedText: variables.translatedText,
-            translatedAt: new Date(),
-          };
-          return updated;
-        } else {
-          // Add new translation
-          return [
-            ...old,
-            {
-              projectId: variables.projectId,
-              key: variables.key,
-              sourceText: variables.sourceText,
+          if (existingIndex >= 0) {
+            // Update existing translation
+            const updated = [...old];
+            updated[existingIndex] = {
+              ...updated[existingIndex],
               translatedText: variables.translatedText,
-              sourceLanguage: variables.sourceLanguage,
-              targetLanguage: variables.targetLanguage,
               translatedAt: new Date(),
               translatedBy: 'manual-edit',
-            },
-          ];
+            };
+            return updated;
+          }
+
+          // Add new translation
+          return [...old, createOptimisticTranslation()];
         }
-      });
+      );
 
       return { previousTranslations };
     },
@@ -342,7 +356,7 @@ export function useTranslate() {
 
   return useMutation({
     mutationFn: async (data: {
-      data: Record<string, any>;
+      data: JsonObject;
       sourceLanguage: string;
       targetLanguage: string;
       selectedKeys?: string[];
@@ -389,7 +403,7 @@ export function useRetranslate() {
       sourceLanguage: string;
       targetLanguage: string;
       keys: string[];
-      originalData: Record<string, any>;
+      originalData: JsonObject;
     }) => {
       // Create a new translation task for retranslation
       const task = await createTaskMutation.mutateAsync({

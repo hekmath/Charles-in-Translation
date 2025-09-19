@@ -1,5 +1,30 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/db-service';
+import type {
+  ChunkStatus,
+  TranslationProgressDetail,
+} from '@/db/types';
+
+type ProgressSummary = {
+  keysRemaining: number;
+  chunksRemaining: number;
+  successRate: number;
+  chunkSuccessRate: number;
+};
+
+type ProgressChunkResponse = {
+  index: number;
+  status: ChunkStatus;
+  itemsCount: number;
+  translatedCount: number;
+  error?: string;
+  successRate: number;
+};
+
+type ProgressResponseData = Omit<TranslationProgressDetail, 'chunks'> & {
+  summary: ProgressSummary;
+  chunks?: ProgressChunkResponse[];
+};
 
 // GET /api/translation-progress - Get enhanced translation progress
 export async function GET(request: NextRequest) {
@@ -68,29 +93,19 @@ export async function GET(request: NextRequest) {
     }
 
     // Optionally include detailed chunk information
-    let responseData: any = {
+    let responseData: ProgressResponseData = {
       taskId: progress.taskId,
       status: progress.status,
-
-      // Enhanced progress metrics - using actual counts instead of percentages
       totalKeys: progress.totalKeys,
       translatedKeys: progress.translatedKeys,
       progressPercentage: progress.progressPercentage,
-
-      // Chunk-level progress
       totalChunks: progress.totalChunks,
       completedChunks: progress.completedChunks,
       failedChunks: progress.failedChunks,
-
-      // Time estimates
       estimatedTimeRemaining: progress.estimatedTimeRemaining,
-
-      // Status information
       error: progress.error,
       startedAt: progress.startedAt,
       completedAt: progress.completedAt,
-
-      // Summary metrics for UI display
       summary: {
         keysRemaining: progress.totalKeys - progress.translatedKeys,
         chunksRemaining:
@@ -112,17 +127,20 @@ export async function GET(request: NextRequest) {
 
     // Include chunk details if requested (useful for debugging or detailed progress views)
     if (includeChunkDetails && progress.chunks) {
-      responseData.chunks = progress.chunks.map((chunk) => ({
-        index: chunk.index,
-        status: chunk.status,
-        itemsCount: chunk.itemsCount,
-        translatedCount: chunk.translatedCount,
-        error: chunk.error,
-        successRate:
-          chunk.itemsCount > 0
-            ? Math.round((chunk.translatedCount / chunk.itemsCount) * 100)
-            : 0,
-      }));
+      responseData = {
+        ...responseData,
+        chunks: progress.chunks.map<ProgressChunkResponse>((chunk) => ({
+          index: chunk.index,
+          status: chunk.status,
+          itemsCount: chunk.itemsCount,
+          translatedCount: chunk.translatedCount,
+          error: chunk.error,
+          successRate:
+            chunk.itemsCount > 0
+              ? Math.round((chunk.translatedCount / chunk.itemsCount) * 100)
+              : 0,
+        })),
+      };
     }
 
     return NextResponse.json({

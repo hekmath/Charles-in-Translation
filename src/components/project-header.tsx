@@ -8,16 +8,12 @@ interface ProjectHeaderProps {
   currentProject: Project | undefined;
   sourceLanguage: string;
   targetLanguage: string;
-  translatedData: Record<string, any> | null;
-  isTranslating: boolean;
 }
 
 export function ProjectHeader({
   currentProject,
   sourceLanguage,
   targetLanguage,
-  translatedData,
-  isTranslating,
 }: ProjectHeaderProps) {
   return (
     <div className="bg-card border border-border/50 rounded-2xl p-6 shadow-sm">

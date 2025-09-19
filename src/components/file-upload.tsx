@@ -5,9 +5,10 @@ import { useDropzone } from 'react-dropzone';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { toast } from 'sonner';
+import { isJsonObject, type JsonObject } from '@/types/json';
 
 interface FileUploadProps {
-  onUpload: (data: Record<string, any>) => void;
+  onUpload: (data: JsonObject) => void;
   isLoading?: boolean;
 }
 
@@ -23,7 +24,10 @@ export function FileUpload({ onUpload, isLoading = false }: FileUploadProps) {
 
       try {
         const text = await file.text();
-        const data = JSON.parse(text);
+        const data = JSON.parse(text) as unknown;
+        if (!isJsonObject(data)) {
+          throw new Error('Parsed JSON is not an object');
+        }
         onUpload(data);
       } catch (error) {
         console.error('Failed to parse JSON:', error);

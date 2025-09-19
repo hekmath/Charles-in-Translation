@@ -9,6 +9,7 @@ import {
   pgEnum,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
+import type { JsonObject } from '@/types/json';
 
 // Enums
 export const taskStatusEnum = pgEnum('task_status', [
@@ -31,7 +32,7 @@ export const projects = pgTable('projects', {
   name: text('name').notNull(),
   description: text('description'),
   sourceLanguage: text('source_language').notNull(),
-  originalData: json('original_data').$type<Record<string, any>>().notNull(),
+  originalData: json('original_data').$type<JsonObject>().notNull(),
   createdBy: text('created_by'), // Will be user ID later
   createdAt: timestamp('created_at').defaultNow().notNull(),
   updatedAt: timestamp('updated_at').defaultNow().notNull(),
@@ -46,7 +47,7 @@ export const translationTasks = pgTable('translation_tasks', {
   targetLanguage: text('target_language').notNull(),
   keys: json('keys').$type<string[]>().notNull(),
   status: taskStatusEnum('status').default('pending').notNull(),
-  translatedData: json('translated_data').$type<Record<string, any>>(),
+  translatedData: json('translated_data').$type<JsonObject>(),
   error: text('error'),
   batchId: text('batch_id'),
 

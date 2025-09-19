@@ -2,11 +2,101 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getLanguageByCode } from '@/lib/constants/languages';
 import { inngest } from '@/inngest/client';
 import { dbService } from '@/lib/db-service';
+import { isJsonObject, type JsonObject, type JsonValue } from '@/types/json';
+
+interface TranslateRequestBody {
+  data: JsonObject;
+  sourceLanguage?: string;
+  targetLanguage: string;
+  selectedKeys?: string[];
+  projectId?: number | string;
+  taskId?: number | string;
+}
+
+const isStringArray = (value: unknown): value is string[] => {
+  return Array.isArray(value) && value.every((item) => typeof item === 'string');
+};
+
+const isTranslateRequestBody = (value: unknown): value is TranslateRequestBody => {
+  if (!isJsonObject(value)) {
+    return false;
+  }
+
+  const {
+    data,
+    sourceLanguage,
+    targetLanguage,
+    selectedKeys,
+    projectId,
+    taskId,
+  } = value as Record<string, unknown>;
+
+  if (!isJsonObject(data)) {
+    return false;
+  }
+
+  if (typeof targetLanguage !== 'string') {
+    return false;
+  }
+
+  if (
+    sourceLanguage !== undefined &&
+    typeof sourceLanguage !== 'string'
+  ) {
+    return false;
+  }
+
+  if (selectedKeys !== undefined && !isStringArray(selectedKeys)) {
+    return false;
+  }
+
+  if (
+    projectId !== undefined &&
+    typeof projectId !== 'string' &&
+    typeof projectId !== 'number'
+  ) {
+    return false;
+  }
+
+  if (taskId !== undefined && typeof taskId !== 'string' && typeof taskId !== 'number') {
+    return false;
+  }
+
+  return true;
+};
+
+const countKeys = (obj: JsonObject): number => {
+  let count = 0;
+
+  for (const value of Object.values(obj)) {
+    if (isJsonObject(value)) {
+      count += countKeys(value);
+    } else {
+      count += 1;
+    }
+  }
+
+  return count;
+};
 
 export async function POST(request: NextRequest) {
-  let body: any;
+  let body: TranslateRequestBody | null = null;
+
   try {
-    body = await request.json();
+    const rawBody = (await request.json()) as unknown;
+
+    if (!isTranslateRequestBody(rawBody)) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Invalid request payload',
+        },
+        { status: 400 }
+      );
+    }
+
+    body = rawBody;
+
     const {
       data,
       sourceLanguage,
@@ -16,26 +106,15 @@ export async function POST(request: NextRequest) {
       taskId,
     } = body;
 
-    // Validation
-    if (!data || !targetLanguage) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Missing required fields: data, targetLanguage',
-        },
-        { status: 400 }
-      );
-    }
-
     // Parse and validate project ID
     const projectIdValue =
       typeof projectId === 'string'
-        ? parseInt(projectId)
+        ? Number.parseInt(projectId, 10)
         : typeof projectId === 'number'
         ? projectId
         : null;
 
-    if (!projectIdValue || isNaN(projectIdValue)) {
+    if (projectIdValue === null || Number.isNaN(projectIdValue)) {
       return NextResponse.json(
         {
           success: false,
@@ -48,12 +127,12 @@ export async function POST(request: NextRequest) {
     // Parse and validate task ID
     const taskIdValue =
       typeof taskId === 'string'
-        ? parseInt(taskId)
+        ? Number.parseInt(taskId, 10)
         : typeof taskId === 'number'
         ? taskId
         : null;
 
-    if (!taskIdValue || isNaN(taskIdValue)) {
+    if (taskIdValue === null || Number.isNaN(taskIdValue)) {
       return NextResponse.json(
         {
           success: false,
@@ -99,55 +178,51 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // Count total keys for reporting
-    const countKeys = (obj: any): number => {
-      let count = 0;
-      for (const [key, value] of Object.entries(obj)) {
-        if (
-          typeof value === 'object' &&
-          value !== null &&
-          !Array.isArray(value)
-        ) {
-          count += countKeys(value);
-        } else {
-          count++;
-        }
-      }
-      return count;
-    };
-
     // Prepare data for translation
-    let dataToTranslate = data;
+    let dataToTranslate: JsonObject = data;
+
     if (selectedKeys && selectedKeys.length > 0) {
       dataToTranslate = {};
-      const flatData: Record<string, any> = {};
+      const flatData: Record<string, JsonValue> = {};
 
-      const flattenForSelection = (obj: any, prefix = '') => {
-        for (const [key, value] of Object.entries(obj)) {
+      const flattenForSelection = (obj: JsonObject, prefix = ''): void => {
+        for (const [key, value] of Object.entries(obj) as Array<[
+          string,
+          JsonValue,
+        ]>) {
           const fullKey = prefix ? `${prefix}.${key}` : key;
-          if (
-            typeof value === 'object' &&
-            value !== null &&
-            !Array.isArray(value)
-          ) {
+          if (isJsonObject(value)) {
             flattenForSelection(value, fullKey);
           } else {
             flatData[fullKey] = value;
           }
         }
       };
+
       flattenForSelection(data);
 
       for (const selectedKey of selectedKeys) {
-        if (flatData[selectedKey] !== undefined) {
-          const keys = selectedKey.split('.');
-          let current = dataToTranslate as any;
-          for (let i = 0; i < keys.length - 1; i++) {
-            if (!current[keys[i]]) current[keys[i]] = {};
-            current = current[keys[i]];
-          }
-          current[keys[keys.length - 1]] = flatData[selectedKey];
+        if (!Object.prototype.hasOwnProperty.call(flatData, selectedKey)) {
+          continue;
         }
+
+        const keys = selectedKey.split('.');
+        let current: JsonObject = dataToTranslate;
+
+        for (let i = 0; i < keys.length - 1; i += 1) {
+          const segment = keys[i];
+          const existingValue = current[segment];
+
+          if (!isJsonObject(existingValue)) {
+            const nextLevel: JsonObject = {};
+            current[segment] = nextLevel;
+            current = nextLevel;
+          } else {
+            current = existingValue;
+          }
+        }
+
+        current[keys[keys.length - 1]] = flatData[selectedKey];
       }
     }
 
@@ -186,7 +261,7 @@ export async function POST(request: NextRequest) {
       metadata: {
         sourceLanguage,
         targetLanguage,
-        selectedKeysOnly: !!(selectedKeys && selectedKeys.length > 0),
+        selectedKeysOnly: Boolean(selectedKeys && selectedKeys.length > 0),
         isRTL: targetLanguageInfo.rtl || false,
         chunkingStrategy: 'parallel-chunks', // Indicate new chunking approach
         maxChunkSize: 25, // Document the chunk size
@@ -196,12 +271,14 @@ export async function POST(request: NextRequest) {
     console.error('Translation API error:', error);
 
     // Try to update task status on error if we have the task ID
-    if (body?.taskId) {
+    if (body?.taskId !== undefined) {
       try {
         const taskIdValue =
-          typeof body.taskId === 'string' ? parseInt(body.taskId) : body.taskId;
+          typeof body.taskId === 'string'
+            ? Number.parseInt(body.taskId, 10)
+            : body.taskId;
 
-        if (!isNaN(taskIdValue)) {
+        if (typeof taskIdValue === 'number' && !Number.isNaN(taskIdValue)) {
           await dbService.translationTasks.update(taskIdValue, {
             status: 'failed',
             error: error instanceof Error ? error.message : 'Unknown error',

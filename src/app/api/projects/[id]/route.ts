@@ -8,9 +8,9 @@ export async function GET(
 ) {
   try {
     const { id } = await params;
-    const projectId = parseInt(id);
+    const projectId = Number.parseInt(id, 10);
 
-    if (isNaN(projectId)) {
+    if (Number.isNaN(projectId)) {
       return NextResponse.json(
         {
           success: false,
@@ -53,12 +53,13 @@ export async function GET(
 // DELETE /api/projects/[id] - Delete a specific project
 export async function DELETE(
   request: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const projectId = parseInt(params.id);
+    const { id } = await params;
+    const projectId = Number.parseInt(id, 10);
 
-    if (isNaN(projectId)) {
+    if (Number.isNaN(projectId)) {
       return NextResponse.json(
         {
           success: false,
