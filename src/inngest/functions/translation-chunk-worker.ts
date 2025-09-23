@@ -98,7 +98,7 @@ CRITICAL RULES:
 
         // Make AI translation request
         const translationResult = await generateObject({
-          model: openai('gpt-5-mini'),
+          model: openai('gpt-5'),
           schema: translationChunkSchema,
           messages: [
             { role: 'system', content: systemPrompt },
