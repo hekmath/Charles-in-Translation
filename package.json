@@ -12,12 +12,15 @@
     "db:studio": "drizzle-kit studio",
     "db:push": "drizzle-kit push",
     "db:reset": "drizzle-kit drop && drizzle-kit push",
+    "db:indexes": "npx tsx src/db/create-indexes.ts",
+    "db:setup": "drizzle-kit push && npm run db:indexes",
     "docker:up": "docker-compose up -d",
     "docker:down": "docker-compose down"
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^2.0.17",
     "@ai-sdk/openai": "^2.0.30",
+    "@clerk/nextjs": "^6.32.2",
     "@monaco-editor/react": "^4.7.0",
     "@radix-ui/react-checkbox": "^1.3.3",
     "@radix-ui/react-dialog": "^1.1.15",
@@ -62,6 +65,7 @@
     "eslint": "^9",
     "eslint-config-next": "15.5.3",
     "tailwindcss": "^4",
+    "tsx": "^4.19.2",
     "tw-animate-css": "^1.3.8",
     "typescript": "^5"
   }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/db-service';
 import { z } from 'zod';
+import { auth } from '@clerk/nextjs/server';
 
 // Updated validation schema for the new progress structure
 const updateProgressSchema = z.object({
@@ -28,6 +29,14 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Check authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
     const { id } = await params;
     const taskId = parseInt(id);
 
@@ -151,6 +160,14 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Check authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
     const { id } = await params;
     const taskId = parseInt(id);
 

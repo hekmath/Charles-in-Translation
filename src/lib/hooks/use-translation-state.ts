@@ -11,6 +11,7 @@ import {
   useCreateTranslationTask,
   useCachedTranslations,
   useTranslationProgress,
+  useTaskProgress,
   useTranslate,
 } from '@/lib/hooks/use-api';
 import { rebuildTranslatedData } from '@/lib/translation-helpers';
@@ -47,12 +48,22 @@ export function useTranslationState({
     targetLanguage || null
   );
 
-  // Enhanced translation progress with better polling
-  const { data: translationProgress } = useTranslationProgress(
+  // CRITICAL FIX: Track progress by specific taskId instead of project+language
+  const currentTaskId = activeTranslationRef.current?.taskId || null;
+  const { data: translationProgress } = useTaskProgress(
+    currentTaskId,
+    showProgress && isTranslating && !!currentTaskId
+  );
+
+  // Fallback to project-level progress for legacy compatibility
+  const { data: fallbackProgress } = useTranslationProgress(
     currentProjectId,
     targetLanguage || null,
-    showProgress && isTranslating
+    showProgress && isTranslating && !currentTaskId
   );
+
+  // Use task-specific progress if available, otherwise fallback
+  const effectiveProgress = translationProgress || fallbackProgress;
 
   // Mutations
   const createTranslationTaskMutation = useCreateTranslationTask();
@@ -140,42 +151,51 @@ export function useTranslationState({
   // Enhanced completion detection using the new progress structure
   // Optimized dependencies to prevent unnecessary re-runs
   useEffect(() => {
-    if (!translationProgress || !isTranslating) return;
+    if (!effectiveProgress || !isTranslating) return;
 
-    if (translationProgress.status === 'completed') {
+    if (effectiveProgress.status === 'completed') {
       console.log('Translation completed! Refreshing data...');
 
       // Add a small delay to ensure all translations are committed to database
       // This fixes the race condition where completion fires before all individual
       // translation records are fully saved
-      setTimeout(() => {
-        // Force refresh both translation tasks AND cached translations (Bug 2 fix)
+      const refreshData = async () => {
         if (currentProjectId && targetLanguage) {
-          queryClient.invalidateQueries({
+          // Invalidate in sequence to ensure proper refresh
+          await queryClient.invalidateQueries({
             queryKey: queryKeys.translationTasks.list(currentProjectId),
           });
-          // Also invalidate cached translations to trigger UI update
-          queryClient.invalidateQueries({
+          await queryClient.invalidateQueries({
             queryKey: queryKeys.translations.list(
               currentProjectId,
               targetLanguage
             ),
           });
+          // Also invalidate progress to ensure it shows final state
+          await queryClient.invalidateQueries({
+            queryKey: queryKeys.translationProgress.detail(currentProjectId, targetLanguage),
+          });
         }
-      }, 3000); // 1 second delay to ensure DB consistency
+      };
+
+      // Initial quick refresh
+      setTimeout(refreshData, 500);
+
+      // Follow-up refresh to ensure we catch any delayed DB updates
+      setTimeout(refreshData, 2000);
     }
 
-    if (translationProgress.status === 'failed') {
-      console.log('Translation failed:', translationProgress.error);
+    if (effectiveProgress.status === 'failed') {
+      console.log('Translation failed:', effectiveProgress.error);
       setIsTranslating(false);
       setShowProgress(false);
       activeTranslationRef.current = null;
       toast.error(
-        `Translation failed: ${translationProgress.error || 'Unknown error'}`
+        `Translation failed: ${effectiveProgress.error || 'Unknown error'}`
       );
     }
   }, [
-    translationProgress,
+    effectiveProgress,
     isTranslating,
     currentProjectId,
     targetLanguage,
@@ -322,7 +342,7 @@ export function useTranslationState({
       selectedKeys,
       setSelectedKeys,
       showProgress,
-      translationProgress,
+      translationProgress: effectiveProgress,
 
       // Actions
       handleTranslation,
@@ -336,7 +356,7 @@ export function useTranslationState({
       isTranslating,
       selectedKeys,
       showProgress,
-      translationProgress,
+      effectiveProgress,
       handleTranslation,
       resetTranslationState,
       createTranslationTaskMutation.isPending,

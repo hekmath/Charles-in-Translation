@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/db-service';
+import { auth } from '@clerk/nextjs/server';
 
 // GET /api/projects/[id] - Get a specific project
 export async function GET(
@@ -7,6 +8,14 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Check authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
     const { id } = await params;
     const projectId = Number.parseInt(id, 10);
 
@@ -56,6 +65,14 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    // Check authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
     const { id } = await params;
     const projectId = Number.parseInt(id, 10);
 

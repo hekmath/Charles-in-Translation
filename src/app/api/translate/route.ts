@@ -3,6 +3,7 @@ import { getLanguageByCode } from '@/lib/constants/languages';
 import { inngest } from '@/inngest/client';
 import { dbService } from '@/lib/db-service';
 import { isJsonObject, type JsonObject, type JsonValue } from '@/types/json';
+import { auth } from '@clerk/nextjs/server';
 
 interface TranslateRequestBody {
   data: JsonObject;
@@ -83,6 +84,15 @@ export async function POST(request: NextRequest) {
   let body: TranslateRequestBody | null = null;
 
   try {
+    // Check authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const rawBody = (await request.json()) as unknown;
 
     if (!isTranslateRequestBody(rawBody)) {

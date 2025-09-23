@@ -13,7 +13,7 @@ import {
   type ChunkStatus,
   type TranslationProgressDetail,
 } from '@/db/types';
-import { eq, and, desc, asc, count, sql, inArray } from 'drizzle-orm';
+import { eq, and, or, desc, asc, count, sql, inArray } from 'drizzle-orm';
 
 // Projects Service with fixed delete method
 export class ProjectsService {
@@ -272,7 +272,29 @@ export class TranslationTasksService {
     projectId: number,
     targetLanguage: string
   ): Promise<TranslationProgressDetail | null> {
-    const [task] = await db
+    // First, try to find an active task (processing or pending)
+    const [activeTask] = await db
+      .select()
+      .from(translationTasks)
+      .where(
+        and(
+          eq(translationTasks.projectId, projectId),
+          eq(translationTasks.targetLanguage, targetLanguage),
+          or(
+            eq(translationTasks.status, 'processing'),
+            eq(translationTasks.status, 'pending')
+          )
+        )
+      )
+      .orderBy(desc(translationTasks.createdAt))
+      .limit(1);
+
+    if (activeTask) {
+      return await this.getProgress(activeTask.id);
+    }
+
+    // If no active task, get the most recent task (completed or failed)
+    const [recentTask] = await db
       .select()
       .from(translationTasks)
       .where(
@@ -284,9 +306,9 @@ export class TranslationTasksService {
       .orderBy(desc(translationTasks.createdAt))
       .limit(1);
 
-    if (!task) return null;
+    if (!recentTask) return null;
 
-    return await this.getProgress(task.id);
+    return await this.getProgress(recentTask.id);
   }
 }
 
@@ -429,7 +451,7 @@ export class TranslationsService {
         .values({
           ...data,
           translatedAt: new Date(),
-          translatedBy: 'gpt-4o-mini',
+          translatedBy: 'gpt-5',
           failed: data.failed || false,
         })
         .returning();

@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Montserrat, Open_Sans, Geist_Mono } from 'next/font/google';
 import './globals.css';
 import { Providers } from '@/components/providers';
+import { ClerkProvider } from '@clerk/nextjs';
 
 const montserrat = Montserrat({
   variable: '--font-montserrat',
@@ -27,47 +28,6 @@ export const metadata: Metadata = {
   title: 'Charles in Translation - AI-Powered Localization',
   description:
     'Professional JSON translation tool powered by AI. Translate your application strings quickly and accurately with our intelligent localization platform.',
-  keywords: [
-    'JSON translation',
-    'localization',
-    'AI translation',
-    'i18n',
-    'internationalization',
-  ],
-  authors: [{ name: 'Charles in Translation' }],
-  creator: 'Charles in Translation',
-  metadataBase: new URL('https://json-translator.com'),
-  alternates: {
-    canonical: '/',
-  },
-  openGraph: {
-    title: 'Charles in Translation - AI-Powered Localization',
-    description:
-      'Professional JSON translation tool powered by AI. Translate your application strings quickly and accurately.',
-    type: 'website',
-    locale: 'en_US',
-    siteName: 'Charles in Translation',
-  },
-  twitter: {
-    card: 'summary_large_image',
-    title: 'Charles in Translation - AI-Powered Localization',
-    description:
-      'Professional JSON translation tool powered by AI. Translate your application strings quickly and accurately.',
-  },
-  robots: {
-    index: true,
-    follow: true,
-    googleBot: {
-      index: true,
-      follow: true,
-      'max-video-preview': -1,
-      'max-image-preview': 'large',
-      'max-snippet': -1,
-    },
-  },
-  verification: {
-    google: 'your-google-verification-code',
-  },
 };
 
 export default function RootLayout({
@@ -88,7 +48,9 @@ export default function RootLayout({
         <meta name="color-scheme" content="light dark" />
       </head>
       <body className="font-sans antialiased min-h-screen bg-background text-foreground">
-        <Providers>{children}</Providers>
+        <ClerkProvider>
+          <Providers>{children}</Providers>
+        </ClerkProvider>
       </body>
     </html>
   );

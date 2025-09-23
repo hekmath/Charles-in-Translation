@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/db-service';
+import { auth } from '@clerk/nextjs/server';
 import type {
   ChunkStatus,
   TranslationProgressDetail,
@@ -29,6 +30,15 @@ type ProgressResponseData = Omit<TranslationProgressDetail, 'chunks'> & {
 // GET /api/translation-progress - Get enhanced translation progress
 export async function GET(request: NextRequest) {
   try {
+    // Check authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const { searchParams } = new URL(request.url);
     const projectIdParam = searchParams.get('projectId');
     const targetLanguage = searchParams.get('targetLanguage');
@@ -164,6 +174,15 @@ export async function GET(request: NextRequest) {
 // POST /api/translation-progress - Manual progress update (for testing/admin)
 export async function POST(request: NextRequest) {
   try {
+    // Check authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
     const { taskId, action, data } = body;
 

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/db-service';
 import { z } from 'zod';
+import { auth } from '@clerk/nextjs/server';
 
 // Validation schema for creating a translation task
 const createTaskSchema = z.object({
@@ -12,6 +13,14 @@ const createTaskSchema = z.object({
 // GET /api/translation-tasks - Get translation tasks for a project
 export async function GET(request: NextRequest) {
   try {
+    // Check authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
     const { searchParams } = new URL(request.url);
     const projectIdParam = searchParams.get('projectId');
 
@@ -59,6 +68,14 @@ export async function GET(request: NextRequest) {
 // POST /api/translation-tasks - Create a new translation task
 export async function POST(request: NextRequest) {
   try {
+    // Check authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
     const body = await request.json();
 
     // Validate request body

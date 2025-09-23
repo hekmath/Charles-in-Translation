@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/db-service';
 import { z } from 'zod';
+import { auth } from '@clerk/nextjs/server';
 
 // Validation schema for saving a translation
 const saveTranslationSchema = z.object({
@@ -15,6 +16,14 @@ const saveTranslationSchema = z.object({
 // GET /api/translations - Get cached translations for a project and target language
 export async function GET(request: NextRequest) {
   try {
+    // Check authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
     const { searchParams } = new URL(request.url);
     const projectIdParam = searchParams.get('projectId');
     const targetLanguage = searchParams.get('targetLanguage');
@@ -88,6 +97,14 @@ export async function GET(request: NextRequest) {
 // POST /api/translations - Save an individual translation
 export async function POST(request: NextRequest) {
   try {
+    // Check authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
     const body = await request.json();
 
     // Validate request body

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { dbService } from '@/lib/db-service';
 import { z } from 'zod';
+import { auth } from '@clerk/nextjs/server';
 
 // Validation schema for creating a project
 const createProjectSchema = z.object({
@@ -18,6 +19,15 @@ const createProjectSchema = z.object({
 // GET /api/projects - Get all projects
 export async function GET() {
   try {
+    // Check authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const projects = await dbService.projects.getAll();
 
     return NextResponse.json({
@@ -41,6 +51,15 @@ export async function GET() {
 // POST /api/projects - Create a new project
 export async function POST(request: NextRequest) {
   try {
+    // Check authentication
+    const { userId } = await auth();
+    if (!userId) {
+      return NextResponse.json(
+        { success: false, error: 'Unauthorized' },
+        { status: 401 }
+      );
+    }
+
     const body = await request.json();
 
     // Validate request body

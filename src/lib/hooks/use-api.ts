@@ -185,7 +185,78 @@ export function useTranslationProgress(
         return 5000;
       }
 
-      // Stop polling for completed/failed
+      // Continue polling for a short time after completion to catch final updates
+      if (data.status === 'completed' || data.status === 'failed') {
+        const lastUpdate = query.state.dataUpdatedAt;
+        const timeSinceUpdate = Date.now() - lastUpdate;
+
+        // Poll for 10 more seconds after completion to ensure we get final state
+        if (timeSinceUpdate < 10000) {
+          return 3000; // Poll every 3 seconds for final updates
+        }
+      }
+
+      // Stop polling after grace period
+      return false;
+    },
+    refetchIntervalInBackground: true,
+    // Don't cache completed/failed results for too long
+    staleTime: (query) => {
+      const data = query.state.data;
+      if (!data) return 5 * 60 * 1000; // 5 minutes default
+
+      if (data.status === 'processing' || data.status === 'pending') {
+        return 0; // Always fresh for active jobs
+      }
+
+      return 30 * 60 * 1000; // 30 minutes for completed jobs
+    },
+  });
+}
+
+// NEW: Hook to track progress by specific taskId (CRITICAL FIX)
+export function useTaskProgress(
+  taskId: number | null,
+  enabled = true
+) {
+  return useQuery({
+    queryKey: ['taskProgress', taskId],
+    queryFn: async (): Promise<TranslationProgressDetail | null> => {
+      const response = await fetch(`/api/translation-tasks/${taskId}/progress`);
+      if (!response.ok) {
+        return null;
+      }
+      const data = await response.json();
+      return data.success ? data.data : null;
+    },
+    enabled: enabled && !!taskId,
+    // Enhanced polling logic based on status
+    refetchInterval: (query) => {
+      const data = query.state.data;
+      if (!data) return false;
+
+      // Poll every 2 seconds for active processing
+      if (data.status === 'processing') {
+        return 2000;
+      }
+
+      // Poll every 5 seconds for pending (waiting to start)
+      if (data.status === 'pending') {
+        return 5000;
+      }
+
+      // Continue polling for a short time after completion to catch final updates
+      if (data.status === 'completed' || data.status === 'failed') {
+        const lastUpdate = query.state.dataUpdatedAt;
+        const timeSinceUpdate = Date.now() - lastUpdate;
+
+        // Poll for 10 more seconds after completion to ensure we get final state
+        if (timeSinceUpdate < 10000) {
+          return 3000; // Poll every 3 seconds for final updates
+        }
+      }
+
+      // Stop polling after grace period
       return false;
     },
     refetchIntervalInBackground: true,
