@@ -50,11 +50,13 @@ export function LanguageSelector({
     onChange,
     placeholder,
     variant = 'default',
+    disabledValue,
   }: {
     value: string;
     onChange: (value: string) => void;
     placeholder: string;
     variant?: 'default' | 'secondary';
+    disabledValue?: string;
   }) => {
     const selectedLang = getLanguageInfo(value);
 
@@ -101,11 +103,17 @@ export function LanguageSelector({
             <DropdownMenuItem
               key={language.code}
               onClick={() => onChange(language.code)}
+              disabled={language.code === disabledValue}
               className={`
                 flex items-center justify-between cursor-pointer py-2.5 px-3
                 ${
                   value === language.code
                     ? 'bg-primary/10 text-primary font-medium'
+                    : ''
+                }
+                ${
+                  language.code === disabledValue
+                    ? 'opacity-50 cursor-not-allowed'
                     : ''
                 }
               `}
@@ -140,11 +148,17 @@ export function LanguageSelector({
                 <DropdownMenuItem
                   key={language.code}
                   onClick={() => onChange(language.code)}
+                  disabled={language.code === disabledValue}
                   className={`
                     flex items-center justify-between cursor-pointer py-2.5 px-3
                     ${
                       value === language.code
                         ? 'bg-primary/10 text-primary font-medium'
+                        : ''
+                    }
+                    ${
+                      language.code === disabledValue
+                        ? 'opacity-50 cursor-not-allowed'
                         : ''
                     }
                   `}
@@ -183,6 +197,7 @@ export function LanguageSelector({
           value={sourceLanguage}
           onChange={onSourceChange}
           placeholder="Source"
+          disabledValue={targetLanguage}
         />
       </div>
 
@@ -211,6 +226,7 @@ export function LanguageSelector({
           onChange={onTargetChange}
           placeholder="Target"
           variant="secondary"
+          disabledValue={sourceLanguage}
         />
       </div>
     </div>

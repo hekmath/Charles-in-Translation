@@ -22,6 +22,12 @@ export const SUPPORTED_LANGUAGES: Language[] = [
     flag: '🇬🇧',
     nativeName: 'English (UK)',
   },
+  {
+    code: 'vi',
+    name: 'Vietnamese',
+    flag: '🇻🇳',
+    nativeName: 'Tiếng Việt',
+  },
 ];
 // Popular languages (first 10) for quick access
 export const POPULAR_LANGUAGES = SUPPORTED_LANGUAGES.slice(0, 10);
