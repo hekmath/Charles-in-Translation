@@ -50,6 +50,7 @@ export const translationTasks = pgTable('translation_tasks', {
   translatedData: json('translated_data').$type<JsonObject>(),
   error: text('error'),
   batchId: text('batch_id'),
+  context: text('context'),
 
   // Enhanced progress tracking fields
   totalKeys: integer('total_keys').default(0).notNull(),

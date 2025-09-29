@@ -15,6 +15,13 @@
       "when": 1758151568649,
       "tag": "0001_tan_warstar",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1759179460101,
+      "tag": "0002_graceful_talon",
+      "breakpoints": true
     }
   ]
 }

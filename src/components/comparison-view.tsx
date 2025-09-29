@@ -137,7 +137,10 @@ export function ComparisonView({
   };
 
   // Enhanced retranslate function with proper cache invalidation
-  const handleRetranslate = async (keys: string[]): Promise<void> => {
+  const handleRetranslate = async (
+    keys: string[],
+    context?: string
+  ): Promise<void> => {
     try {
       await retranslateMutation.mutateAsync({
         projectId,
@@ -145,6 +148,7 @@ export function ComparisonView({
         targetLanguage,
         keys,
         originalData,
+        context,
       });
 
       // Note: Cache invalidation is handled in the useRetranslate hook

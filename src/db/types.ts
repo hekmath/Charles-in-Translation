@@ -37,6 +37,7 @@ export interface TranslationProgressDetail {
   completedChunks: number;
   failedChunks: number;
   estimatedTimeRemaining: number | null;
+  context?: string;
   error?: string;
   chunks: Array<{
     index: number;
@@ -84,6 +85,7 @@ export interface TranslationCoordinatorEventData {
   sourceLanguage: string;
   targetLanguage: string;
   selectedKeys?: string[];
+  context?: string;
 }
 
 export interface TranslationChunkEventData {
@@ -94,6 +96,7 @@ export interface TranslationChunkEventData {
   sourceLanguage: string;
   targetLanguage: string;
   totalChunks: number;
+  context?: string;
 }
 
 export interface TranslationCompletedEventData {

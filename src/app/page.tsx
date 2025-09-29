@@ -162,8 +162,12 @@ export default function Home() {
               hasTranslation={!!translatedData}
               isTranslating={isTranslating}
               selectedKeysCount={selectedKeys.length}
-              onTranslateAll={() => handleTranslation([])}
-              onTranslateSelected={() => handleTranslation(selectedKeys)}
+              onTranslateAll={(context) =>
+                handleTranslation({ context })
+              }
+              onTranslateSelected={(context) =>
+                handleTranslation({ keys: selectedKeys, context })
+              }
               onNewFile={handleNewFile}
               disabled={!targetLanguage || isCreatingProject}
             />

@@ -1,0 +1,1 @@
+ALTER TABLE "translation_tasks" ADD COLUMN "context" text;

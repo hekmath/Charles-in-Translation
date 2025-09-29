@@ -254,6 +254,7 @@ export class TranslationTasksService {
       completedChunks: task.completedChunks || 0,
       failedChunks: task.failedChunks || 0,
       estimatedTimeRemaining,
+      context: task.context ?? undefined,
       error: task.error ?? undefined,
       chunks: chunks.map((chunk) => ({
         index: chunk.chunkIndex,

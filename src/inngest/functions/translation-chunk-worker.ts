@@ -49,13 +49,19 @@ export const processTranslationChunk = inngest.createFunction(
       sourceLanguage,
       targetLanguage,
       totalChunks,
+      context,
     } = event.data as TranslationChunkEventData;
 
     console.log(
-      `Processing chunk ${chunkIndex + 1}/${totalChunks} for task ${taskId} (${
+      `Processing chunk ${chunkIndex + 1}/${totalChunks} for task ${taskId} (${ 
         chunk.length
       } items)`
     );
+
+    const trimmedContext =
+      typeof context === 'string' && context.trim().length > 0
+        ? context.trim()
+        : undefined;
 
     const result = await step.run(`translate-chunk-${chunkIndex}`, async () => {
       try {
@@ -97,6 +103,10 @@ CRITICAL RULES:
           '\n\nTranslate accurately while preserving the technical integrity and user experience intent.';
 
         // Make AI translation request
+        const contextSection = trimmedContext
+          ? `\n\nProject context (use this to guide tone & terminology):\n${trimmedContext}\n`
+          : '';
+
         const translationResult = await generateObject({
           model: openai('gpt-5'),
           schema: translationChunkSchema,
@@ -106,7 +116,7 @@ CRITICAL RULES:
               role: 'user',
               content: `Translate these ${
                 chunk.length
-              } key-value pairs from ${sourceLangContext} to ${targetLangContext}:
+              } key-value pairs from ${sourceLangContext} to ${targetLangContext}:${contextSection}
 
 ${chunk
   .map((item: ChunkData) => `Key: "${item.key}" | Value: "${item.value}"`)

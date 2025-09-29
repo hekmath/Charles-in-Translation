@@ -27,6 +27,7 @@ interface CreateTranslationTaskRequest {
   projectId: number;
   targetLanguage: string;
   keys: string[];
+  context?: string;
 }
 
 interface UpdateTranslationTaskRequest {
@@ -171,6 +172,7 @@ export const translateApi = {
     selectedKeys?: string[];
     projectId: number;
     taskId: number;
+    context?: string;
   }) =>
     apiRequest('/api/translate', {
       method: 'POST',

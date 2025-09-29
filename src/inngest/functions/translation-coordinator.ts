@@ -48,9 +48,10 @@ export const coordinateTranslation = inngest.createFunction(
       taskId,
       data,
       sourceLanguage,
-      targetLanguage,
-      selectedKeys,
-    } = event.data as TranslationCoordinatorEventData;
+    targetLanguage,
+    selectedKeys,
+    context,
+  } = event.data as TranslationCoordinatorEventData;
 
     console.log(`Starting translation coordination for task ${taskId}`);
 
@@ -152,13 +153,14 @@ export const coordinateTranslation = inngest.createFunction(
             projectId,
             taskId,
             chunkIndex,
-            chunk,
-            sourceLanguage,
-            targetLanguage,
-            totalChunks: chunks.length,
-          },
-        });
+          chunk,
+          sourceLanguage,
+          targetLanguage,
+          totalChunks: chunks.length,
+          context,
+        },
       });
+    });
 
       await Promise.all(dispatchPromises);
       console.log(`Dispatched all ${chunks.length} chunk processing jobs`);

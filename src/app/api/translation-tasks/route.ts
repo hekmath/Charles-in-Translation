@@ -8,6 +8,7 @@ const createTaskSchema = z.object({
   projectId: z.number().int().positive('Project ID must be a positive integer'),
   targetLanguage: z.string().min(1, 'Target language is required'),
   keys: z.array(z.string()).default([]),
+  context: z.string().max(2000, 'Context must be 2000 characters or fewer').optional(),
 });
 
 // GET /api/translation-tasks - Get translation tasks for a project

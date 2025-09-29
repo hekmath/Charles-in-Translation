@@ -129,6 +129,7 @@ export function useCreateTranslationTask() {
       projectId: number;
       targetLanguage: string;
       keys: string[];
+      context?: string;
     }) => {
       const response = await apiClient.translationTasks.create(data);
       if (!response.success || !response.data) {
@@ -433,6 +434,7 @@ export function useTranslate() {
       selectedKeys?: string[];
       projectId: number;
       taskId: number;
+      context?: string;
     }) => {
       const response = await apiClient.translate.translate(data);
       if (!response.success) {
@@ -475,12 +477,14 @@ export function useRetranslate() {
       targetLanguage: string;
       keys: string[];
       originalData: JsonObject;
+      context?: string;
     }) => {
       // Create a new translation task for retranslation
       const task = await createTaskMutation.mutateAsync({
         projectId: data.projectId,
         targetLanguage: data.targetLanguage,
         keys: data.keys,
+        context: data.context,
       });
 
       // Start the translation
@@ -491,6 +495,7 @@ export function useRetranslate() {
         targetLanguage: data.targetLanguage,
         selectedKeys: data.keys,
         taskId: task.id,
+        context: data.context,
       });
 
       return { taskId: task.id };

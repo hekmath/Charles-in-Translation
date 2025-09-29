@@ -12,6 +12,7 @@ interface TranslateRequestBody {
   selectedKeys?: string[];
   projectId?: number | string;
   taskId?: number | string;
+  context?: string;
 }
 
 const isStringArray = (value: unknown): value is string[] => {
@@ -30,6 +31,7 @@ const isTranslateRequestBody = (value: unknown): value is TranslateRequestBody =
     selectedKeys,
     projectId,
     taskId,
+    context,
   } = value as Record<string, unknown>;
 
   if (!isJsonObject(data)) {
@@ -60,6 +62,10 @@ const isTranslateRequestBody = (value: unknown): value is TranslateRequestBody =
   }
 
   if (taskId !== undefined && typeof taskId !== 'string' && typeof taskId !== 'number') {
+    return false;
+  }
+
+  if (context !== undefined && typeof context !== 'string') {
     return false;
   }
 
@@ -114,7 +120,13 @@ export async function POST(request: NextRequest) {
       selectedKeys,
       projectId,
       taskId,
+      context,
     } = body;
+
+    const normalizedContext =
+      typeof context === 'string' && context.trim().length > 0
+        ? context.trim()
+        : undefined;
 
     // Parse and validate project ID
     const projectIdValue =
@@ -246,12 +258,13 @@ export async function POST(request: NextRequest) {
       data: {
         projectId: projectIdValue,
         taskId: taskIdValue,
-        data: dataToTranslate,
-        sourceLanguage,
-        targetLanguage,
-        selectedKeys,
-      },
-    });
+      data: dataToTranslate,
+      sourceLanguage,
+      targetLanguage,
+      selectedKeys,
+      context: normalizedContext,
+    },
+  });
 
     // Update task status to indicate it's been queued for coordination
     try {
@@ -275,6 +288,7 @@ export async function POST(request: NextRequest) {
         isRTL: targetLanguageInfo.rtl || false,
         chunkingStrategy: 'parallel-chunks', // Indicate new chunking approach
         maxChunkSize: 25, // Document the chunk size
+        hasContext: Boolean(normalizedContext),
       },
     });
   } catch (error) {

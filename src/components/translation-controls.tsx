@@ -1,16 +1,18 @@
 'use client';
 
+import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { TranslationContextDialog } from '@/components/translation-context-dialog';
 
 interface TranslationControlsProps {
   hasData: boolean;
   hasTranslation: boolean;
   isTranslating: boolean;
   selectedKeysCount: number;
-  onTranslateAll: () => void;
-  onTranslateSelected: () => void;
+  onTranslateAll: (context?: string) => void;
+  onTranslateSelected: (context?: string) => void;
   onNewFile: () => void;
   disabled: boolean;
 }
@@ -25,6 +27,51 @@ export function TranslationControls({
   onNewFile,
   disabled,
 }: TranslationControlsProps) {
+  const [contextDialogOpen, setContextDialogOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'all' | 'selected' | null>(
+    null
+  );
+  const [previousContext, setPreviousContext] = useState('');
+
+  const dialogCopy = useMemo(() => {
+    if (pendingAction === 'selected') {
+      return {
+        title: 'Add context for selected keys',
+        description:
+          'Share any notes the translator should consider while reworking the selected keys. Leave blank if none.',
+        confirmLabel: 'Translate selected keys',
+      };
+    }
+
+    return {
+      title: 'Add translation context',
+      description:
+        'Provide optional product notes, tone guidance, or glossary hints before translating the entire file.',
+      confirmLabel: 'Translate all keys',
+    };
+  }, [pendingAction]);
+
+  const closeDialog = () => {
+    setContextDialogOpen(false);
+    setPendingAction(null);
+  };
+
+  const openDialog = (action: 'all' | 'selected') => {
+    setPendingAction(action);
+    setContextDialogOpen(true);
+  };
+
+  const handleConfirm = (context?: string) => {
+    if (pendingAction === 'selected') {
+      onTranslateSelected(context);
+    } else if (pendingAction === 'all') {
+      onTranslateAll(context);
+    }
+
+    setPreviousContext(context ?? '');
+    closeDialog();
+  };
+
   if (!hasData) return null;
 
   return (
@@ -67,7 +114,7 @@ export function TranslationControls({
         <div className="flex items-center space-x-3">
           {selectedKeysCount > 0 && (
             <Button
-              onClick={onTranslateSelected}
+              onClick={() => openDialog('selected')}
               disabled={disabled || isTranslating}
               variant="secondary"
               className="font-medium shadow-sm hover:shadow-md transition-all duration-200"
@@ -99,7 +146,7 @@ export function TranslationControls({
           )}
 
           <Button
-            onClick={onTranslateAll}
+            onClick={() => openDialog('all')}
             disabled={disabled || isTranslating}
             className="font-medium shadow-sm hover:shadow-md transition-all duration-200"
           >
@@ -173,6 +220,23 @@ export function TranslationControls({
           </div>
         </div>
       )}
+
+      <TranslationContextDialog
+        open={contextDialogOpen}
+        onOpenChange={(open) => {
+          setContextDialogOpen(open);
+          if (!open) {
+            setPendingAction(null);
+          }
+        }}
+        onConfirm={handleConfirm}
+        onCancel={closeDialog}
+        title={dialogCopy.title}
+        description={dialogCopy.description}
+        confirmLabel={dialogCopy.confirmLabel}
+        defaultContext={previousContext}
+        isSubmitting={isTranslating}
+      />
     </Card>
   );
 }

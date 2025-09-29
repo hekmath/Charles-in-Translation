@@ -39,6 +39,7 @@ export function useTranslationState({
   const activeTranslationRef = useRef<{
     taskId?: number;
     targetLanguage?: string;
+    context?: string;
   } | null>(null);
 
   // React Query hooks
@@ -280,7 +281,13 @@ export function useTranslationState({
 
   // Handle translation with useCallback to prevent unnecessary re-renders
   const handleTranslation = useCallback(
-    async (keys?: string[]) => {
+    async (
+      params: {
+        keys?: string[];
+        context?: string;
+      } = {}
+    ) => {
+      const { keys, context } = params;
       if (!jsonData || !targetLanguage || !currentProjectId) return;
 
       setIsTranslating(true);
@@ -291,6 +298,7 @@ export function useTranslationState({
           projectId: currentProjectId,
           targetLanguage,
           keys: keys || selectedKeys || [],
+          context,
         });
 
         // Call translate API (now uses new coordinator workflow)
@@ -301,12 +309,14 @@ export function useTranslationState({
           targetLanguage,
           selectedKeys: keys || selectedKeys,
           taskId: task.id,
+          context,
         });
 
         // Set up progress tracking for the new coordinator workflow
         activeTranslationRef.current = {
           taskId: task.id,
           targetLanguage,
+          context,
         };
         setShowProgress(true);
 
