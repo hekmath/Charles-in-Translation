@@ -322,7 +322,12 @@ export function TranslationTable({
     setContextDialogOpen(true);
   };
 
-  const submitRetranslation = async (context?: string) => {
+  const submitRetranslation = async ({
+    context,
+  }: {
+    context?: string;
+    cacheOption?: string;
+  }) => {
     if (!pendingRetranslateKeys?.length) {
       setContextDialogOpen(false);
       setPendingRetranslateKeys(null);

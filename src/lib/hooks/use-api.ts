@@ -301,6 +301,32 @@ export function useCachedTranslations(
   });
 }
 
+export function useTranslationCacheSources(
+  sourceLanguage: string | null,
+  targetLanguage: string | null
+) {
+  return useQuery({
+    queryKey: [
+      'translationCacheSources',
+      sourceLanguage,
+      targetLanguage,
+    ],
+    queryFn: async () => {
+      const response = await apiClient.translations.getCacheSources(
+        sourceLanguage!,
+        targetLanguage!
+      );
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Failed to fetch cache sources');
+      }
+
+      return response.data.projectIds;
+    },
+    enabled: Boolean(sourceLanguage && targetLanguage),
+  });
+}
+
 // Enhanced Save Translation Hook with immediate cache updates
 export function useSaveTranslation() {
   const queryClient = useQueryClient();
@@ -435,6 +461,8 @@ export function useTranslate() {
       projectId: number;
       taskId: number;
       context?: string;
+      skipCache?: boolean;
+      cacheProjectId?: number;
     }) => {
       const response = await apiClient.translate.translate(data);
       if (!response.success) {
@@ -496,6 +524,7 @@ export function useRetranslate() {
         selectedKeys: data.keys,
         taskId: task.id,
         context: data.context,
+        skipCache: true,
       });
 
       return { taskId: task.id };

@@ -13,6 +13,8 @@ interface TranslateRequestBody {
   projectId?: number | string;
   taskId?: number | string;
   context?: string;
+  skipCache?: boolean;
+  cacheProjectId?: number | string;
 }
 
 const isStringArray = (value: unknown): value is string[] => {
@@ -32,6 +34,8 @@ const isTranslateRequestBody = (value: unknown): value is TranslateRequestBody =
     projectId,
     taskId,
     context,
+    skipCache,
+    cacheProjectId,
   } = value as Record<string, unknown>;
 
   if (!isJsonObject(data)) {
@@ -66,6 +70,18 @@ const isTranslateRequestBody = (value: unknown): value is TranslateRequestBody =
   }
 
   if (context !== undefined && typeof context !== 'string') {
+    return false;
+  }
+
+  if (skipCache !== undefined && typeof skipCache !== 'boolean') {
+    return false;
+  }
+
+  if (
+    cacheProjectId !== undefined &&
+    typeof cacheProjectId !== 'string' &&
+    typeof cacheProjectId !== 'number'
+  ) {
     return false;
   }
 
@@ -121,6 +137,8 @@ export async function POST(request: NextRequest) {
       projectId,
       taskId,
       context,
+      skipCache,
+      cacheProjectId,
     } = body;
 
     const normalizedContext =
@@ -141,6 +159,31 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error: 'Missing or invalid project ID',
+        },
+        { status: 400 }
+      );
+    }
+
+    const normalizedSkipCache = Boolean(skipCache);
+
+    const cacheProjectIdValue =
+      cacheProjectId === undefined
+        ? projectIdValue
+        : typeof cacheProjectId === 'string'
+        ? Number.parseInt(cacheProjectId, 10)
+        : typeof cacheProjectId === 'number'
+        ? cacheProjectId
+        : null;
+
+    if (
+      cacheProjectIdValue === null ||
+      Number.isNaN(cacheProjectIdValue) ||
+      cacheProjectIdValue <= 0
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Invalid cache project ID',
         },
         { status: 400 }
       );
@@ -174,6 +217,35 @@ export async function POST(request: NextRequest) {
         },
         { status: 404 }
       );
+    }
+
+    // Resolve cache project (defaults to current project)
+    let cacheProject = project;
+    if (cacheProjectIdValue !== projectIdValue) {
+      const existingCacheProject = await dbService.projects.getById(
+        cacheProjectIdValue
+      );
+      if (!existingCacheProject) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Cache project not found',
+          },
+          { status: 404 }
+        );
+      }
+      cacheProject = existingCacheProject;
+
+      if (cacheProject.sourceLanguage !== project.sourceLanguage) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              'Cache project must share the same source language as the current project',
+          },
+          { status: 400 }
+        );
+      }
     }
 
     // Verify task exists
@@ -258,13 +330,15 @@ export async function POST(request: NextRequest) {
       data: {
         projectId: projectIdValue,
         taskId: taskIdValue,
-      data: dataToTranslate,
-      sourceLanguage,
-      targetLanguage,
-      selectedKeys,
-      context: normalizedContext,
-    },
-  });
+        data: dataToTranslate,
+        sourceLanguage,
+        targetLanguage,
+        selectedKeys,
+        context: normalizedContext,
+        skipCache: normalizedSkipCache,
+        cacheProjectId: cacheProjectIdValue,
+      },
+    });
 
     // Update task status to indicate it's been queued for coordination
     try {
@@ -289,6 +363,9 @@ export async function POST(request: NextRequest) {
         chunkingStrategy: 'parallel-chunks', // Indicate new chunking approach
         maxChunkSize: 25, // Document the chunk size
         hasContext: Boolean(normalizedContext),
+        skipCache: normalizedSkipCache,
+        cacheProjectId: cacheProjectIdValue,
+        cacheProjectName: cacheProject.name,
       },
     });
   } catch (error) {

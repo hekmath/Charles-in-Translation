@@ -2,15 +2,30 @@
 
 'use client';
 
+import { useState, useMemo } from 'react';
 import { FileUpload } from '@/components/file-upload';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import type { JsonObject } from '@/types/json';
 
 interface LandingSectionProps {
-  onUpload: (data: JsonObject) => Promise<void>;
+  onUpload: (name: string, data: JsonObject) => Promise<void>;
   isLoading: boolean;
 }
 
 export function LandingSection({ onUpload, isLoading }: LandingSectionProps) {
+  const defaultName = useMemo(
+    () => `Project ${new Date().toLocaleDateString()}`,
+    []
+  );
+  const [projectName, setProjectName] = useState(defaultName);
+
+  const handleUpload = async (data: JsonObject) => {
+    const trimmedName = projectName.trim();
+    await onUpload(trimmedName.length > 0 ? trimmedName : defaultName, data);
+    setProjectName(`Project ${new Date().toLocaleDateString()}`);
+  };
+
   return (
     <div className="flex flex-col items-center justify-center min-h-[70vh] text-center space-y-8">
       <div className="relative">
@@ -38,7 +53,19 @@ export function LandingSection({ onUpload, isLoading }: LandingSectionProps) {
             Upload your JSON files and let AI handle the heavy lifting.
             Professional localization made simple.
           </p>
-          <FileUpload onUpload={onUpload} isLoading={isLoading} />
+          <div className="grid gap-2 text-left mb-6">
+            <Label htmlFor="project-name" className="text-sm font-medium">
+              Project name
+            </Label>
+            <Input
+              id="project-name"
+              value={projectName}
+              onChange={(event) => setProjectName(event.target.value)}
+              placeholder="Enter a memorable name"
+              disabled={isLoading}
+            />
+          </div>
+          <FileUpload onUpload={handleUpload} isLoading={isLoading} />
         </div>
       </div>
 

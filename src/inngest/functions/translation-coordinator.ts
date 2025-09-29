@@ -4,30 +4,34 @@ import { dbService } from '@/lib/db-service';
 import type { TranslationCoordinatorEventData, ChunkData } from '@/db/types';
 import { isJsonObject, type JsonObject, type JsonValue } from '@/types/json';
 
-function chunkObject(
-  obj: JsonObject,
-  chunkSize: number = 15 // Reduced from 50 to 25 for better reliability
-): Array<Array<ChunkData>> {
-  const flattenObject = (value: JsonObject, prefix = ''): Array<ChunkData> => {
-    const items: Array<ChunkData> = [];
-    for (const [key, entryValue] of Object.entries(value) as Array<[
-      string,
-      JsonValue,
-    ]>) {
-      const fullKey = prefix ? `${prefix}.${key}` : key;
-      if (isJsonObject(entryValue)) {
-        items.push(...flattenObject(entryValue, fullKey));
-      } else {
-        items.push({ key: fullKey, value: String(entryValue) });
-      }
-    }
-    return items;
-  };
+function flattenToChunkData(
+  value: JsonObject,
+  prefix = ''
+): Array<ChunkData> {
+  const items: Array<ChunkData> = [];
 
-  const flatItems = flattenObject(obj);
+  for (const [key, entryValue] of Object.entries(value) as Array<[
+    string,
+    JsonValue,
+  ]>) {
+    const fullKey = prefix ? `${prefix}.${key}` : key;
+    if (isJsonObject(entryValue)) {
+      items.push(...flattenToChunkData(entryValue, fullKey));
+    } else {
+      items.push({ key: fullKey, value: String(entryValue) });
+    }
+  }
+
+  return items;
+}
+
+function chunkEntries(
+  entries: Array<ChunkData>,
+  chunkSize: number = 25
+): Array<Array<ChunkData>> {
   const chunks: Array<Array<ChunkData>> = [];
-  for (let i = 0; i < flatItems.length; i += chunkSize) {
-    chunks.push(flatItems.slice(i, i + chunkSize));
+  for (let i = 0; i < entries.length; i += chunkSize) {
+    chunks.push(entries.slice(i, i + chunkSize));
   }
   return chunks;
 }
@@ -48,10 +52,14 @@ export const coordinateTranslation = inngest.createFunction(
       taskId,
       data,
       sourceLanguage,
-    targetLanguage,
-    selectedKeys,
-    context,
-  } = event.data as TranslationCoordinatorEventData;
+      targetLanguage,
+      selectedKeys,
+      context,
+      skipCache,
+      cacheProjectId,
+    } = event.data as TranslationCoordinatorEventData;
+
+    const cacheSourceProjectId = cacheProjectId ?? projectId;
 
     console.log(`Starting translation coordination for task ${taskId}`);
 
@@ -98,27 +106,81 @@ export const coordinateTranslation = inngest.createFunction(
             continue;
           }
 
-            const keys = selectedKey.split('.');
+          const keys = selectedKey.split('.');
           let current: JsonObject = dataToTranslate;
           for (let i = 0; i < keys.length - 1; i += 1) {
             const segment = keys[i];
-          const existingValue = current[segment];
+            const existingValue = current[segment];
 
-          if (!isJsonObject(existingValue)) {
-            const nextLevel: JsonObject = {};
-            current[segment] = nextLevel;
-            current = nextLevel;
-          } else {
-            current = existingValue;
+            if (!isJsonObject(existingValue)) {
+              const nextLevel: JsonObject = {};
+              current[segment] = nextLevel;
+              current = nextLevel;
+            } else {
+              current = existingValue;
+            }
           }
+          const selectedValue = flatData[selectedKey];
+          current[keys[keys.length - 1]] = selectedValue;
         }
-        const selectedValue = flatData[selectedKey];
-        current[keys[keys.length - 1]] = selectedValue;
       }
-    }
 
-      const chunks = chunkObject(dataToTranslate, 25);
-      const totalKeys = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+      const flatEntries = flattenToChunkData(dataToTranslate);
+      const totalKeys = flatEntries.length;
+
+      let entriesToTranslate = flatEntries;
+      let reusedCount = 0;
+
+      if (!skipCache && flatEntries.length > 0) {
+        const existingTranslations = await dbService.translations.getByKeys(
+          cacheSourceProjectId,
+          targetLanguage,
+          flatEntries.map((entry) => entry.key)
+        );
+
+        console.log(
+          `Cache lookup for task ${taskId} (cache project ${cacheSourceProjectId}): ${existingTranslations.length} existing translation(s) found`
+        );
+
+        if (existingTranslations.length > 0) {
+          const existingMap = new Map(
+            existingTranslations.map((translation) => [translation.key, translation])
+          );
+
+          const filteredEntries: Array<ChunkData> = [];
+
+          for (const entry of flatEntries) {
+            const cached = existingMap.get(entry.key);
+
+            if (
+              cached &&
+              cached.sourceText === entry.value &&
+              cached.failed === false &&
+              cached.sourceLanguage === sourceLanguage &&
+              cached.targetLanguage === targetLanguage
+            ) {
+              reusedCount += 1;
+              await dbService.translations.save({
+                projectId,
+                taskId,
+                chunkIndex: undefined,
+                key: entry.key,
+                sourceText: cached.sourceText,
+                translatedText: cached.translatedText,
+                sourceLanguage: cached.sourceLanguage,
+                targetLanguage: cached.targetLanguage,
+                failed: false,
+              });
+            } else {
+              filteredEntries.push(entry);
+            }
+          }
+
+          entriesToTranslate = filteredEntries;
+        }
+      }
+
+      const chunks = chunkEntries(entriesToTranslate, 25);
 
       // Initialize task progress with real counts
       await dbService.translationTasks.initializeProgress(
@@ -127,14 +189,57 @@ export const coordinateTranslation = inngest.createFunction(
         chunks.length
       );
 
-      // Initialize chunk tracking
-      await dbService.translationChunks.initializeChunks(taskId, chunks.length);
+      if (reusedCount > 0) {
+        await dbService.translationTasks.updateTranslatedKeys(taskId, reusedCount);
+      }
 
+      if (chunks.length > 0) {
+        // Initialize chunk tracking only for remaining chunks
+        await dbService.translationChunks.initializeChunks(taskId, chunks.length);
+      }
+
+      const cacheHits = totalKeys - entriesToTranslate.length;
       console.log(
-        `Created ${chunks.length} chunks for ${totalKeys} total keys`
+        `Created ${chunks.length} chunks for ${totalKeys} total keys (cache hits: ${cacheHits})`
       );
-      return { chunks, totalKeys };
+
+      return { chunks, totalKeys, entriesToTranslate, reusedCount };
     });
+
+    if (chunks.length === 0) {
+      return await step.run('complete-from-cache', async () => {
+        const cachedTranslations = await dbService.translations.getByTask(taskId);
+        const translatedData = rebuildObject(
+          cachedTranslations.map((translation) => ({
+            key: translation.key,
+            value: translation.translatedText,
+          }))
+        );
+
+        await dbService.translationTasks.update(taskId, {
+          status: 'completed',
+          translatedData,
+          completedAt: new Date(),
+        });
+
+        await inngest.send({
+          name: 'translation/job-completed',
+          data: {
+            taskId,
+            projectId,
+            success: true,
+          },
+        });
+
+        return {
+          success: true,
+          translatedData,
+          totalTranslations: cachedTranslations.length,
+          totalKeys,
+          translatedKeys: totalKeys,
+        };
+      });
+    }
 
     // Step 3: Dispatch chunk processing jobs in controlled batches
     await step.run('dispatch-chunk-jobs', async () => {
@@ -153,14 +258,16 @@ export const coordinateTranslation = inngest.createFunction(
             projectId,
             taskId,
             chunkIndex,
-          chunk,
-          sourceLanguage,
-          targetLanguage,
-          totalChunks: chunks.length,
-          context,
-        },
+            chunk,
+            sourceLanguage,
+            targetLanguage,
+            totalChunks: chunks.length,
+            context,
+            skipCache,
+            cacheProjectId: cacheSourceProjectId,
+          },
+        });
       });
-    });
 
       await Promise.all(dispatchPromises);
       console.log(`Dispatched all ${chunks.length} chunk processing jobs`);

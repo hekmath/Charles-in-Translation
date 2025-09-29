@@ -285,9 +285,11 @@ export function useTranslationState({
       params: {
         keys?: string[];
         context?: string;
+        skipCache?: boolean;
+        cacheProjectId?: number;
       } = {}
     ) => {
-      const { keys, context } = params;
+      const { keys, context, skipCache, cacheProjectId } = params;
       if (!jsonData || !targetLanguage || !currentProjectId) return;
 
       setIsTranslating(true);
@@ -310,6 +312,8 @@ export function useTranslationState({
           selectedKeys: keys || selectedKeys,
           taskId: task.id,
           context,
+          skipCache,
+          cacheProjectId,
         });
 
         // Set up progress tracking for the new coordinator workflow

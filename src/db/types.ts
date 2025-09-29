@@ -86,6 +86,8 @@ export interface TranslationCoordinatorEventData {
   targetLanguage: string;
   selectedKeys?: string[];
   context?: string;
+  skipCache?: boolean;
+  cacheProjectId?: number;
 }
 
 export interface TranslationChunkEventData {
@@ -97,6 +99,8 @@ export interface TranslationChunkEventData {
   targetLanguage: string;
   totalChunks: number;
   context?: string;
+  skipCache?: boolean;
+  cacheProjectId?: number;
 }
 
 export interface TranslationCompletedEventData {

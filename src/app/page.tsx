@@ -162,14 +162,31 @@ export default function Home() {
               hasTranslation={!!translatedData}
               isTranslating={isTranslating}
               selectedKeysCount={selectedKeys.length}
-              onTranslateAll={(context) =>
-                handleTranslation({ context })
+              onTranslateAll={({ context, cacheProjectId, skipCache }) =>
+                handleTranslation({
+                  context,
+                  cacheProjectId,
+                  skipCache,
+                })
               }
-              onTranslateSelected={(context) =>
-                handleTranslation({ keys: selectedKeys, context })
+              onTranslateSelected={({
+                context,
+                cacheProjectId,
+                skipCache,
+              }) =>
+                handleTranslation({
+                  keys: selectedKeys,
+                  context,
+                  cacheProjectId,
+                  skipCache,
+                })
               }
               onNewFile={handleNewFile}
               disabled={!targetLanguage || isCreatingProject}
+              projects={projects}
+              currentProjectId={currentProjectId}
+              sourceLanguage={sourceLanguage}
+              targetLanguage={targetLanguage}
             />
 
             <div className="bg-card border border-border/50 rounded-2xl overflow-hidden shadow-sm">

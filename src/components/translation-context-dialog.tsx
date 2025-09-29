@@ -13,11 +13,18 @@ import {
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 
 interface TranslationContextDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onConfirm: (context?: string) => void;
+  onConfirm: (payload: { context?: string; cacheOption?: string }) => void;
   onCancel?: () => void;
   title: string;
   description: string;
@@ -25,6 +32,13 @@ interface TranslationContextDialogProps {
   cancelLabel?: string;
   defaultContext?: string;
   isSubmitting?: boolean;
+  cacheOptions?: Array<{
+    value: string;
+    label: string;
+    disabled?: boolean;
+  }>;
+  selectedCacheOption?: string;
+  onCacheOptionChange?: (value: string) => void;
 }
 
 export function TranslationContextDialog({
@@ -38,6 +52,9 @@ export function TranslationContextDialog({
   cancelLabel = 'Cancel',
   defaultContext = '',
   isSubmitting = false,
+  cacheOptions,
+  selectedCacheOption,
+  onCacheOptionChange,
 }: TranslationContextDialogProps) {
   const [contextValue, setContextValue] = useState(defaultContext);
   const maxLength = 2000;
@@ -50,7 +67,10 @@ export function TranslationContextDialog({
 
   const handleConfirm = () => {
     const trimmed = contextValue.trim();
-    onConfirm(trimmed.length > 0 ? trimmed : undefined);
+    onConfirm({
+      context: trimmed.length > 0 ? trimmed : undefined,
+      cacheOption: selectedCacheOption,
+    });
     onOpenChange(false);
   };
 
@@ -67,6 +87,30 @@ export function TranslationContextDialog({
         </DialogHeader>
 
         <div className="grid gap-4 py-4">
+          {cacheOptions && cacheOptions.length > 0 && (
+            <div className="grid gap-2 text-left">
+              <Label htmlFor="cache-project">Translation memory</Label>
+              <Select
+                value={selectedCacheOption ?? 'none'}
+                onValueChange={(value) => onCacheOptionChange?.(value)}
+              >
+                <SelectTrigger id="cache-project">
+                  <SelectValue placeholder="Select cache source" />
+                </SelectTrigger>
+                <SelectContent>
+                  {cacheOptions.map((option) => (
+                    <SelectItem
+                      key={option.value}
+                      value={option.value}
+                      disabled={option.disabled}
+                    >
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div className="grid gap-2">
             <Label htmlFor="translation-context">Context (optional)</Label>
             <Textarea

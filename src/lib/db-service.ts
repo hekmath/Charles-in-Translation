@@ -7,6 +7,7 @@ import {
 } from '@/db/schema';
 import {
   type TranslationTask,
+  type Translation,
   type NewProject,
   type NewTranslationTask,
   type NewTranslation,
@@ -479,6 +480,47 @@ export class TranslationsService {
       .select()
       .from(translations)
       .where(eq(translations.taskId, taskId));
+  }
+
+  static async getByKeys(
+    projectId: number,
+    targetLanguage: string,
+    keys: string[]
+  ) {
+    if (!keys.length) {
+      return [] as Translation[];
+    }
+
+    return await db
+      .select()
+      .from(translations)
+      .where(
+        and(
+          eq(translations.projectId, projectId),
+          eq(translations.targetLanguage, targetLanguage),
+          inArray(translations.key, keys)
+        )
+      );
+  }
+
+  static async getProjectIdsWithLanguage(
+    sourceLanguage: string,
+    targetLanguage: string
+  ) {
+    const rows = await db
+      .select({ projectId: translations.projectId })
+      .from(translations)
+      .where(
+        and(
+          eq(translations.sourceLanguage, sourceLanguage),
+          eq(translations.targetLanguage, targetLanguage),
+          eq(translations.failed, false)
+        )
+      )
+      .groupBy(translations.projectId)
+      .orderBy(asc(translations.projectId));
+
+    return rows.map((row) => row.projectId);
   }
 
   // Get translation statistics for a project
