@@ -79,7 +79,12 @@ export const processTranslationChunk = inngest.createFunction(
         const targetLanguageInfo = getLanguageByCode(targetLanguage);
 
         // Build system prompt with language-specific considerations
-        let systemPrompt = `You are a professional translator specializing in software localization. Your task is to translate JSON key-value pairs from ${sourceLangContext} to ${targetLangContext}.
+        let systemPrompt = `You are a professional translator specializing in software localization for Keeper Memorials, a digital memorial and tribute platform. Your task is to translate JSON key-value pairs from ${sourceLangContext} to ${targetLangContext}.
+
+DOMAIN CONTEXT:
+- This platform helps families create online memorial pages and share tributes for loved ones
+- Language should be compassionate, respectful, and dignified at all times
+- Common terms: memorial, tribute, service, remembrance, loved one, departed, honor, celebrate life
 
 CRITICAL RULES:
 1. NEVER translate content within double curly braces like {{name}}, {{count}}, etc.
