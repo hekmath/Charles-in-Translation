@@ -5,46 +5,32 @@ import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { TranslationContextDialog } from '@/components/translation-context-dialog';
-import type { Project } from '@/db/types';
 import { useTranslationCacheSources } from '@/lib/hooks/use-api';
+import { useProject } from '@/context/project-context';
+import { useTranslation } from '@/context/translation-context';
 
-interface TranslationControlsProps {
-  hasData: boolean;
-  hasTranslation: boolean;
-  isTranslating: boolean;
-  selectedKeysCount: number;
-  onTranslateAll: (payload: {
-    context?: string;
-    cacheProjectId?: number;
-    skipCache?: boolean;
-  }) => void;
-  onTranslateSelected: (payload: {
-    context?: string;
-    cacheProjectId?: number;
-    skipCache?: boolean;
-  }) => void;
-  onNewFile: () => void;
-  disabled: boolean;
-  projects: Project[];
-  currentProjectId: number | null;
-  sourceLanguage: string;
-  targetLanguage: string;
-}
+export function TranslationControls() {
+  const {
+    jsonData,
+    projects,
+    currentProjectId,
+    sourceLanguage,
+    targetLanguage,
+    resetProjectState,
+    isCreatingProject,
+  } = useProject();
+  const {
+    translatedData,
+    isTranslating,
+    selectedKeys,
+    handleTranslation,
+    resetTranslationState,
+  } = useTranslation();
 
-export function TranslationControls({
-  hasData,
-  hasTranslation,
-  isTranslating,
-  selectedKeysCount,
-  onTranslateAll,
-  onTranslateSelected,
-  onNewFile,
-  disabled,
-  projects,
-  currentProjectId,
-  sourceLanguage,
-  targetLanguage,
-}: TranslationControlsProps) {
+  const hasData = Boolean(jsonData);
+  const hasTranslation = Boolean(translatedData);
+  const selectedKeysCount = selectedKeys.length;
+  const disabled = !targetLanguage || isCreatingProject;
   const [contextDialogOpen, setContextDialogOpen] = useState(false);
   const [pendingAction, setPendingAction] = useState<'all' | 'selected' | null>(
     null
@@ -170,9 +156,10 @@ export function TranslationControls({
     cacheOption?: string;
   }) => {
     if (pendingAction === 'selected') {
-      onTranslateSelected({
+      handleTranslation({
         context,
         skipCache: true,
+        keys: selectedKeys,
       });
     } else if (pendingAction === 'all') {
       const effectiveOption = cacheOption ?? selectedCacheOption;
@@ -180,7 +167,7 @@ export function TranslationControls({
 
       const cacheSelection = interpretCacheSelection(effectiveOption);
 
-      onTranslateAll({
+      handleTranslation({
         context,
         cacheProjectId: cacheSelection.cacheProjectId,
         skipCache: cacheSelection.skipCache,
@@ -301,7 +288,10 @@ export function TranslationControls({
           </Button>
 
           <Button
-            onClick={onNewFile}
+            onClick={() => {
+              resetProjectState();
+              resetTranslationState();
+            }}
             variant="outline"
             className="font-medium shadow-sm hover:shadow-md transition-all duration-200 bg-transparent"
           >

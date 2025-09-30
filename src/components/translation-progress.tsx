@@ -1,19 +1,11 @@
-// File location: src/components/translation-progress.tsx
-
 'use client';
 
 import { formatTimeRemaining } from '@/lib/translation-helpers';
-import type { TranslationProgressDetail } from '@/db/types';
+import { useTranslation } from '@/context/translation-context';
 
-interface TranslationProgressProps {
-  translationProgress: TranslationProgressDetail | null | undefined;
-  showProgress: boolean;
-}
+export function TranslationProgress() {
+  const { translationProgress, showProgress } = useTranslation();
 
-export function TranslationProgress({
-  translationProgress,
-  showProgress,
-}: TranslationProgressProps) {
   if (!showProgress || !translationProgress) return null;
 
   const {

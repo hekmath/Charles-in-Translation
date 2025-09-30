@@ -32,17 +32,15 @@ import {
   ArrowDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { isJsonObject, type JsonObject, type JsonValue } from '@/types/json';
 import { TranslationContextDialog } from '@/components/translation-context-dialog';
+import { useProject } from '@/context/project-context';
+import { useTranslation } from '@/context/translation-context';
+import { flattenJson } from '@/lib/json-utils';
 
 interface TranslationTableProps {
-  originalData: JsonObject;
-  translatedData: JsonObject;
   onEdit: (key: string, value: string) => Promise<void>;
   onRetranslate: (keys: string[], context?: string) => Promise<void>;
   onRefresh?: () => Promise<void>;
-  sourceLanguage: string;
-  targetLanguage: string;
   isEditLoading?: boolean;
   isRetranslateLoading?: boolean;
   isRefreshLoading?: boolean;
@@ -62,17 +60,19 @@ type SortDirection = 'asc' | 'desc';
 type StatusFilter = 'all' | 'missing' | 'untranslated' | 'translated';
 
 export function TranslationTable({
-  originalData,
-  translatedData,
   onEdit,
   onRetranslate,
   onRefresh,
-  sourceLanguage,
-  targetLanguage,
   isEditLoading = false,
   isRetranslateLoading = false,
   isRefreshLoading = false,
 }: TranslationTableProps) {
+  const {
+    jsonData: originalData,
+    sourceLanguage,
+    targetLanguage,
+  } = useProject();
+  const { translatedData } = useTranslation();
   const [searchTerm, setSearchTerm] = useState('');
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -119,33 +119,12 @@ export function TranslationTable({
 
   // Flatten nested objects for table display
   const flattenedData = useMemo(() => {
-    const flattenObject = (
-      obj: JsonValue,
-      prefix = ''
-    ): Record<string, string> => {
-      const flattened: Record<string, string> = {};
+    if (!originalData || !translatedData) {
+      return [] as FlattenedItem[];
+    }
 
-      if (!isJsonObject(obj)) {
-        return flattened;
-      }
-
-      for (const [key, value] of Object.entries(obj) as Array<[
-        string,
-        JsonValue,
-      ]>) {
-        const fullKey = prefix ? `${prefix}.${key}` : key;
-        if (isJsonObject(value)) {
-          Object.assign(flattened, flattenObject(value, fullKey));
-        } else {
-          flattened[fullKey] = String(value);
-        }
-      }
-
-      return flattened;
-    };
-
-    const originalFlat = flattenObject(originalData);
-    const translatedFlat = flattenObject(translatedData);
+    const originalFlat = flattenJson(originalData);
+    const translatedFlat = flattenJson(translatedData);
 
     const items: FlattenedItem[] = Object.keys(originalFlat).map((key) => {
       const original = originalFlat[key] || '';
@@ -424,6 +403,10 @@ export function TranslationTable({
         );
     }
   };
+
+  if (!originalData || !translatedData) {
+    return null;
+  }
 
   return (
     <Card className="overflow-hidden shadow-sm">

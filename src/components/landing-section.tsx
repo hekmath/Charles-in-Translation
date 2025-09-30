@@ -7,13 +7,10 @@ import { FileUpload } from '@/components/file-upload';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import type { JsonObject } from '@/types/json';
+import { useProject } from '@/context/project-context';
 
-interface LandingSectionProps {
-  onUpload: (name: string, data: JsonObject) => Promise<void>;
-  isLoading: boolean;
-}
-
-export function LandingSection({ onUpload, isLoading }: LandingSectionProps) {
+export function LandingSection() {
+  const { handleFileUpload, isCreatingProject } = useProject();
   const defaultName = useMemo(
     () => `Project ${new Date().toLocaleDateString()}`,
     []
@@ -22,7 +19,10 @@ export function LandingSection({ onUpload, isLoading }: LandingSectionProps) {
 
   const handleUpload = async (data: JsonObject) => {
     const trimmedName = projectName.trim();
-    await onUpload(trimmedName.length > 0 ? trimmedName : defaultName, data);
+    await handleFileUpload(
+      trimmedName.length > 0 ? trimmedName : defaultName,
+      data
+    );
     setProjectName(`Project ${new Date().toLocaleDateString()}`);
   };
 
@@ -62,10 +62,10 @@ export function LandingSection({ onUpload, isLoading }: LandingSectionProps) {
               value={projectName}
               onChange={(event) => setProjectName(event.target.value)}
               placeholder="Enter a memorable name"
-              disabled={isLoading}
+              disabled={isCreatingProject}
             />
           </div>
-          <FileUpload onUpload={handleUpload} isLoading={isLoading} />
+          <FileUpload onUpload={handleUpload} isLoading={isCreatingProject} />
         </div>
       </div>
 

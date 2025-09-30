@@ -21,28 +21,25 @@ import { TranslationTable } from '@/components/translation-table';
 import { queryKeys } from '@/lib/react-query-client';
 import {
   useSaveTranslation,
-  useRetranslate, // New hook for retranslation
+  useRetranslate,
 } from '@/lib/hooks/use-api';
 import { rebuildTranslatedData } from '@/lib/translation-helpers';
-import { isJsonObject, type JsonObject, type JsonValue } from '@/types/json';
+import { useProject } from '@/context/project-context';
+import { useTranslation } from '@/context/translation-context';
+import { flattenJson } from '@/lib/json-utils';
+import { isJsonObject, type JsonObject } from '@/types/json';
 
-interface ComparisonViewProps {
-  originalData: JsonObject;
-  translatedData: JsonObject;
-  sourceLanguage: string;
-  targetLanguage: string;
-  projectId: number;
-  onTranslationUpdate?: (newTranslatedData: JsonObject) => void;
-}
-
-export function ComparisonView({
-  originalData,
-  translatedData,
-  sourceLanguage,
-  targetLanguage,
-  projectId,
-  onTranslationUpdate,
-}: ComparisonViewProps) {
+export function ComparisonView() {
+  const {
+    jsonData: originalData,
+    sourceLanguage,
+    targetLanguage,
+    currentProjectId,
+  } = useProject();
+  const {
+    translatedData,
+    setTranslatedData,
+  } = useTranslation();
   const [viewMode, setViewMode] = useState<'side-by-side' | 'table'>('table');
   const [isRefreshLoading, setIsRefreshLoading] = useState(false);
 
@@ -58,6 +55,12 @@ export function ComparisonView({
 
   const sourceInfo = getLanguageInfo(sourceLanguage);
   const targetInfo = getLanguageInfo(targetLanguage);
+
+  if (!originalData || !translatedData || !currentProjectId) {
+    return null;
+  }
+
+  const projectId = currentProjectId;
 
   const downloadTranslation = () => {
     const blob = new Blob([JSON.stringify(translatedData, null, 2)], {
@@ -92,10 +95,10 @@ export function ComparisonView({
     try {
       // Invalidate all relevant queries for this project and target language
       const queries = [
-        queryKeys.translations.list(projectId, targetLanguage),
-        queryKeys.translationTasks.list(projectId),
-        queryKeys.translationProgress.detail(projectId, targetLanguage),
-        queryKeys.projects.detail(projectId),
+        queryKeys.translations.list(currentProjectId, targetLanguage),
+        queryKeys.translationTasks.list(currentProjectId),
+        queryKeys.translationProgress.detail(currentProjectId, targetLanguage),
+        queryKeys.projects.detail(currentProjectId),
       ];
 
       // Invalidate all queries simultaneously
@@ -105,28 +108,28 @@ export function ComparisonView({
 
       // Force refetch to ensure fresh data and get the result
       await queryClient.refetchQueries({
-        queryKey: queryKeys.translations.list(projectId, targetLanguage),
+        queryKey: queryKeys.translations.list(currentProjectId, targetLanguage),
       });
 
       // Get the fresh translations data
       const freshTranslations = queryClient.getQueryData(
-        queryKeys.translations.list(projectId, targetLanguage)
+        queryKeys.translations.list(currentProjectId, targetLanguage)
       ) as Array<{ key: string; translatedText: string }> | undefined;
 
       // If we have fresh translations and the callback exists, rebuild and update the translated data
-      if (freshTranslations && onTranslationUpdate && originalData) {
+      if (freshTranslations && originalData) {
         const rebuiltTranslated = rebuildTranslatedData(
           freshTranslations,
           originalData
         );
         if (rebuiltTranslated) {
-          onTranslationUpdate(rebuiltTranslated);
+          setTranslatedData(rebuiltTranslated);
         }
       }
 
       // Also refetch the project data
       await queryClient.refetchQueries({
-        queryKey: queryKeys.projects.detail(projectId),
+        queryKey: queryKeys.projects.detail(currentProjectId),
       });
     } catch (error) {
       console.error('Failed to refresh data:', error);
@@ -143,7 +146,7 @@ export function ComparisonView({
   ): Promise<void> => {
     try {
       await retranslateMutation.mutateAsync({
-        projectId,
+        projectId: currentProjectId,
         sourceLanguage,
         targetLanguage,
         keys,
@@ -184,7 +187,7 @@ export function ComparisonView({
       });
 
       // Update local state immediately for responsiveness
-      if (translatedData && onTranslationUpdate) {
+      if (translatedData) {
         const updated: JsonObject = { ...translatedData };
         const keys = key.split('.');
         let current: JsonObject = updated;
@@ -201,7 +204,7 @@ export function ComparisonView({
           }
         }
         current[keys[keys.length - 1]] = value;
-        onTranslationUpdate(updated);
+        setTranslatedData(updated);
       }
 
       // Note: Database save and cache invalidation is handled by useSaveTranslation hook
@@ -210,24 +213,6 @@ export function ComparisonView({
       console.error('Failed to save edit:', error);
       // Error toast is handled by the mutation hook
     }
-  };
-
-  const flattenJson = (
-    obj: JsonObject,
-    prefix = ''
-  ): Record<string, string> => {
-    const flattened: Record<string, string> = {};
-    (Object.entries(obj) as Array<[string, JsonValue]>).forEach(
-      ([key, value]) => {
-      const fullKey = prefix ? `${prefix}.${key}` : key;
-      if (isJsonObject(value)) {
-        Object.assign(flattened, flattenJson(value, fullKey));
-      } else {
-        flattened[fullKey] = String(value);
-      }
-    }
-    );
-    return flattened;
   };
 
   return (
@@ -324,13 +309,9 @@ export function ComparisonView({
 
       {viewMode === 'table' ? (
         <TranslationTable
-          originalData={originalData}
-          translatedData={translatedData}
           onEdit={handleEdit}
           onRetranslate={handleRetranslate}
           onRefresh={handleRefresh}
-          sourceLanguage={sourceLanguage}
-          targetLanguage={targetLanguage}
           // Pass loading states to show pending operations
           isEditLoading={saveTranslationMutation.isPending}
           isRetranslateLoading={retranslateMutation.isPending}
@@ -408,13 +389,12 @@ export function ComparisonView({
                 theme="vs-light"
                 value={JSON.stringify(translatedData, null, 2)}
                 onChange={(value) => {
-                  if (value && onTranslationUpdate) {
-                    try {
-                      const parsed = JSON.parse(value);
-                      onTranslationUpdate(parsed);
-                    } catch {
-                      // ignore invalid JSON in editor
-                    }
+                  if (!value) return;
+                  try {
+                    const parsed = JSON.parse(value);
+                    setTranslatedData(parsed);
+                  } catch {
+                    // ignore invalid JSON in editor
                   }
                 }}
                 options={{

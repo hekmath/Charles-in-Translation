@@ -1,7 +1,7 @@
 'use client';
 
 import type React from 'react';
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Editor from '@monaco-editor/react';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -19,23 +19,14 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import type { editor } from 'monaco-editor';
-import { isJsonObject, type JsonObject, type JsonValue } from '@/types/json';
+import { isJsonObject, type JsonValue } from '@/types/json';
+import { collectJsonKeys } from '@/lib/json-utils';
+import { useProject } from '@/context/project-context';
+import { useTranslation } from '@/context/translation-context';
 
-interface JsonEditorProps {
-  data: JsonObject;
-  onChange: (data: JsonObject) => void;
-  selectedKeys: string[];
-  onSelectionChange: (keys: string[]) => void;
-  language: string;
-}
-
-export function JsonEditor({
-  data,
-  onChange,
-  selectedKeys,
-  onSelectionChange,
-  language,
-}: JsonEditorProps) {
+export function JsonEditor() {
+  const { jsonData, setJsonData, sourceLanguage } = useProject();
+  const { selectedKeys, setSelectedKeys } = useTranslation();
   const [viewMode, setViewMode] = useState<'code' | 'tree'>('code');
   const [jsonString, setJsonString] = useState('');
   const [isValid, setIsValid] = useState(true);
@@ -44,42 +35,22 @@ export function JsonEditor({
   const [expandedKeys, setExpandedKeys] = useState<Set<string>>(new Set());
   const editorRef = useRef<editor.IStandaloneCodeEditor | null>(null);
 
-  // Extract all keys from nested JSON
-  const extractKeys = useCallback(
-    (
-      obj: JsonValue,
-      prefix = ''
-    ): { allKeys: string[]; translatableKeys: string[] } => {
-      const collectedAllKeys: string[] = [];
-      const collectedTranslatableKeys: string[] = [];
+  useEffect(() => {
+    if (!jsonData) {
+      setJsonString('');
+      setAllKeys([]);
+      setTranslatableKeys([]);
+      return;
+    }
 
-      if (isJsonObject(obj)) {
-        for (const [key, value] of Object.entries(obj) as Array<[
-          string,
-          JsonValue,
-        ]>) {
-          const fullKey = prefix ? `${prefix}.${key}` : key;
-          collectedAllKeys.push(fullKey);
-
-          if (!isJsonObject(value)) {
-            collectedTranslatableKeys.push(fullKey);
-          }
-
-          if (isJsonObject(value)) {
-            const nested = extractKeys(value, fullKey);
-            collectedAllKeys.push(...nested.allKeys);
-            collectedTranslatableKeys.push(...nested.translatableKeys);
-          }
-        }
-      }
-
-      return {
-        allKeys: collectedAllKeys,
-        translatableKeys: collectedTranslatableKeys,
-      };
-    },
-    []
-  );
+    setJsonString(JSON.stringify(jsonData, null, 2));
+    const {
+      allKeys: extractedAllKeys,
+      translatableKeys: extractedTranslatableKeys,
+    } = collectJsonKeys(jsonData);
+    setAllKeys(extractedAllKeys);
+    setTranslatableKeys(extractedTranslatableKeys);
+  }, [jsonData]);
 
   // Get all child keys for a given parent key
   const getChildKeys = (parentKey: string): string[] => {
@@ -133,16 +104,6 @@ export function JsonEditor({
     }
   };
 
-  useEffect(() => {
-    setJsonString(JSON.stringify(data, null, 2));
-    const {
-      allKeys: extractedAllKeys,
-      translatableKeys: extractedTranslatableKeys,
-    } = extractKeys(data);
-    setAllKeys(extractedAllKeys);
-    setTranslatableKeys(extractedTranslatableKeys);
-  }, [data, extractKeys]);
-
   const handleEditorChange = (value: string | undefined) => {
     if (!value) return;
 
@@ -154,7 +115,7 @@ export function JsonEditor({
         throw new Error('Parsed JSON is not an object');
       }
       setIsValid(true);
-      onChange(parsedData);
+      setJsonData(parsedData);
     } catch (error) {
       console.error('Failed to parse JSON input:', error);
       setIsValid(false);
@@ -183,7 +144,7 @@ export function JsonEditor({
     // Update parent selection states
     newSelection = updateParentSelections(newSelection);
 
-    onSelectionChange(newSelection);
+    setSelectedKeys(newSelection);
   };
 
   // Update parent selections based on child selections
@@ -225,15 +186,15 @@ export function JsonEditor({
   };
 
   const selectAll = () => {
-    onSelectionChange(allKeys);
+    setSelectedKeys(allKeys);
   };
 
   const selectAllTranslatable = () => {
-    onSelectionChange(translatableKeys);
+    setSelectedKeys(translatableKeys);
   };
 
   const selectNone = () => {
-    onSelectionChange([]);
+    setSelectedKeys([]);
   };
 
   const copyToClipboard = async () => {
@@ -251,7 +212,7 @@ export function JsonEditor({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `${language}_translations.json`;
+    a.download = `${sourceLanguage}_translations.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -267,7 +228,7 @@ export function JsonEditor({
       }
       const formatted = JSON.stringify(parsed, null, 2);
       setJsonString(formatted);
-      onChange(parsed);
+      setJsonData(parsed);
       toast.success('JSON formatted');
     } catch (error) {
       console.error('Failed to format JSON:', error);
@@ -382,6 +343,10 @@ export function JsonEditor({
       );
     });
   };
+
+  if (!jsonData) {
+    return null;
+  }
 
   return (
     <Card className="overflow-hidden">
@@ -527,7 +492,7 @@ export function JsonEditor({
                 </div>
               </div>
             </div>
-            <div className="space-y-1">{renderTreeItem(data)}</div>
+            <div className="space-y-1">{renderTreeItem(jsonData)}</div>
           </div>
         )}
       </div>

@@ -11,52 +11,13 @@ import { TranslationProgress } from '@/components/translation-progress';
 import { ProjectHeader } from '@/components/project-header';
 import { LandingSection } from '@/components/landing-section';
 import { Toaster } from 'sonner';
-import { useProjectState } from '@/lib/hooks/use-project-state';
-import { useTranslationState } from '@/lib/hooks/use-translation-state';
 import { SignedIn, SignedOut, SignIn, UserButton } from '@clerk/nextjs';
+import { useProject } from '@/context/project-context';
+import { useTranslation } from '@/context/translation-context';
 
 export default function Home() {
-  // Project state management
-  const {
-    jsonData,
-    setJsonData,
-    sourceLanguage,
-    setSourceLanguage,
-    targetLanguage,
-    setTargetLanguage,
-    currentProjectId,
-    setCurrentProjectId,
-    projects,
-    currentProject,
-    projectsLoading,
-    handleFileUpload,
-    resetProjectState,
-    isCreatingProject,
-  } = useProjectState();
-
-  // Translation state management
-  const {
-    translatedData,
-    setTranslatedData,
-    isTranslating,
-    selectedKeys,
-    setSelectedKeys,
-    showProgress,
-    translationProgress,
-    handleTranslation,
-    resetTranslationState,
-  } = useTranslationState({
-    currentProjectId,
-    targetLanguage,
-    sourceLanguage,
-    jsonData,
-  });
-
-  // Handle new file upload
-  const handleNewFile = () => {
-    resetProjectState();
-    resetTranslationState();
-  };
+  const { jsonData } = useProject();
+  const { translatedData } = useTranslation();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-background via-muted/30 to-card">
@@ -111,19 +72,9 @@ export default function Home() {
                   <span>Ready to translate</span>
                 </div>
 
-                <ProjectSelector
-                  projects={projects}
-                  currentProjectId={currentProjectId}
-                  onProjectChange={setCurrentProjectId}
-                  isLoading={projectsLoading}
-                />
+                <ProjectSelector />
 
-                <LanguageSelector
-                  sourceLanguage={sourceLanguage}
-                  targetLanguage={targetLanguage}
-                  onSourceChange={setSourceLanguage}
-                  onTargetChange={setTargetLanguage}
-                />
+                <LanguageSelector />
 
                 <UserButton
                   appearance={{
@@ -140,73 +91,20 @@ export default function Home() {
         {/* Main Content */}
         <main className="container mx-auto px-6 py-12 max-w-7xl">
         {!jsonData ? (
-          <LandingSection
-            onUpload={handleFileUpload}
-            isLoading={isCreatingProject}
-          />
+          <LandingSection />
         ) : (
           <div className="space-y-8">
-            <ProjectHeader
-              currentProject={currentProject}
-              sourceLanguage={sourceLanguage}
-              targetLanguage={targetLanguage}
-            />
+            <ProjectHeader />
 
-            <TranslationProgress
-              translationProgress={translationProgress}
-              showProgress={showProgress}
-            />
+            <TranslationProgress />
 
-            <TranslationControls
-              hasData={!!jsonData}
-              hasTranslation={!!translatedData}
-              isTranslating={isTranslating}
-              selectedKeysCount={selectedKeys.length}
-              onTranslateAll={({ context, cacheProjectId, skipCache }) =>
-                handleTranslation({
-                  context,
-                  cacheProjectId,
-                  skipCache,
-                })
-              }
-              onTranslateSelected={({
-                context,
-                cacheProjectId,
-                skipCache,
-              }) =>
-                handleTranslation({
-                  keys: selectedKeys,
-                  context,
-                  cacheProjectId,
-                  skipCache,
-                })
-              }
-              onNewFile={handleNewFile}
-              disabled={!targetLanguage || isCreatingProject}
-              projects={projects}
-              currentProjectId={currentProjectId}
-              sourceLanguage={sourceLanguage}
-              targetLanguage={targetLanguage}
-            />
+            <TranslationControls />
 
             <div className="bg-card border border-border/50 rounded-2xl overflow-hidden shadow-sm">
               {!translatedData ? (
-                <JsonEditor
-                  data={jsonData}
-                  onChange={setJsonData}
-                  selectedKeys={selectedKeys}
-                  onSelectionChange={setSelectedKeys}
-                  language={sourceLanguage}
-                />
+                <JsonEditor />
               ) : (
-                <ComparisonView
-                  projectId={currentProjectId!}
-                  originalData={jsonData}
-                  translatedData={translatedData}
-                  sourceLanguage={sourceLanguage}
-                  targetLanguage={targetLanguage}
-                  onTranslationUpdate={setTranslatedData}
-                />
+                <ComparisonView />
               )}
             </div>
           </div>
