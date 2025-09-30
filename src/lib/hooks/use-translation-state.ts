@@ -94,20 +94,28 @@ export function useTranslationState({
           setTranslatedData(translatedResult);
           return true;
         }
+        return false;
       } catch (error) {
         console.error('Failed to restore translation from cache:', error);
+        toast.error(
+          'Failed to restore cached translation. Please try translating again.'
+        );
+        return false;
       }
-      return false;
     },
     []
   );
 
   const handleCompletion = useCallback(
     (taskId: number, task: TranslationTask) => {
+      setTranslatedData(task.translatedData as JsonObject | null);
+
       if (task.keys && task.keys.length > 1) {
-        setTranslatedData(task.translatedData as JsonObject | null);
         toast.success('Translation completed!');
+      } else if (task.keys && task.keys.length === 1) {
+        toast.success('Translation completed for selected key!');
       } else {
+        toast.success('Translation completed!');
       }
 
       setIsTranslating(false);
@@ -215,7 +223,12 @@ export function useTranslationState({
       return;
     }
 
-    restoreFromCache(cachedTranslations, jsonData);
+    try {
+      restoreFromCache(cachedTranslations, jsonData);
+    } catch (error) {
+      console.error('Unexpected error in cache restoration effect:', error);
+      toast.error('An unexpected error occurred while loading cached translations');
+    }
   }, [
     cachedTranslations,
     translationTasks,
@@ -248,7 +261,7 @@ export function useTranslationState({
           context,
         });
 
-        translateMutation.mutateAsync({
+        await translateMutation.mutateAsync({
           data: jsonData,
           projectId: currentProjectId,
           sourceLanguage,
