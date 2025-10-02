@@ -29,12 +29,16 @@ export default function Home() {
           <div className="w-full max-w-md">
             <div className="text-center mb-8">
               <div className="w-16 h-16 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center shadow-lg mx-auto mb-4">
-                <span className="text-primary-foreground font-bold text-2xl">CT</span>
+                <span className="text-primary-foreground font-bold text-2xl">
+                  CT
+                </span>
               </div>
               <h1 className="text-3xl font-heading font-black text-foreground tracking-tight">
-                Charles in Translation
+                i18n Translation
               </h1>
-              <p className="text-muted-foreground mt-2">Admin Tool - Sign in to continue</p>
+              <p className="text-muted-foreground mt-2">
+                Admin Tool - Sign in to continue
+              </p>
             </div>
             <SignIn routing="hash" />
           </div>
@@ -58,7 +62,7 @@ export default function Home() {
                 </div>
                 <div>
                   <h1 className="text-2xl font-heading font-black text-foreground tracking-tight">
-                    Charles in Translation
+                    i18n Translation
                   </h1>
                   <p className="text-sm text-muted-foreground font-medium">
                     AI-powered JSON localization platform
@@ -79,7 +83,7 @@ export default function Home() {
                 <UserButton
                   appearance={{
                     elements: {
-                      avatarBox: "w-8 h-8",
+                      avatarBox: 'w-8 h-8',
                     },
                   }}
                 />
@@ -90,25 +94,21 @@ export default function Home() {
 
         {/* Main Content */}
         <main className="container mx-auto px-6 py-12 max-w-7xl">
-        {!jsonData ? (
-          <LandingSection />
-        ) : (
-          <div className="space-y-8">
-            <ProjectHeader />
+          {!jsonData ? (
+            <LandingSection />
+          ) : (
+            <div className="space-y-8">
+              <ProjectHeader />
 
-            <TranslationProgress />
+              <TranslationProgress />
 
-            <TranslationControls />
+              <TranslationControls />
 
-            <div className="bg-card border border-border/50 rounded-2xl overflow-hidden shadow-sm">
-              {!translatedData ? (
-                <JsonEditor />
-              ) : (
-                <ComparisonView />
-              )}
+              <div className="bg-card border border-border/50 rounded-2xl overflow-hidden shadow-sm">
+                {!translatedData ? <JsonEditor /> : <ComparisonView />}
+              </div>
             </div>
-          </div>
-        )}
+          )}
         </main>
       </SignedIn>
     </div>

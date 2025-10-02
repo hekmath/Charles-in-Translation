@@ -4,7 +4,7 @@ import { Providers } from '@/components/providers';
 import { ClerkProvider } from '@clerk/nextjs';
 
 export const metadata: Metadata = {
-  title: 'Charles in Translation - AI-Powered Localization',
+  title: 'i18n Translation - AI-Powered Localization',
   description:
     'Professional JSON translation tool powered by AI. Translate your application strings quickly and accurately with our intelligent localization platform.',
 };
@@ -15,9 +15,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html
-      lang="en"
-    >
+    <html lang="en">
       <head>
         <link rel="icon" href="/favicon.ico" sizes="any" />
         <link rel="icon" href="/icon.svg" type="image/svg+xml" />
