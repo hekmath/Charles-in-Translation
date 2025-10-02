@@ -49,13 +49,19 @@ export const processTranslationChunk = inngest.createFunction(
       sourceLanguage,
       targetLanguage,
       totalChunks,
+      context,
     } = event.data as TranslationChunkEventData;
 
     console.log(
-      `Processing chunk ${chunkIndex + 1}/${totalChunks} for task ${taskId} (${
+      `Processing chunk ${chunkIndex + 1}/${totalChunks} for task ${taskId} (${ 
         chunk.length
       } items)`
     );
+
+    const trimmedContext =
+      typeof context === 'string' && context.trim().length > 0
+        ? context.trim()
+        : undefined;
 
     const result = await step.run(`translate-chunk-${chunkIndex}`, async () => {
       try {
@@ -73,7 +79,12 @@ export const processTranslationChunk = inngest.createFunction(
         const targetLanguageInfo = getLanguageByCode(targetLanguage);
 
         // Build system prompt with language-specific considerations
-        let systemPrompt = `You are a professional translator specializing in software localization. Your task is to translate JSON key-value pairs from ${sourceLangContext} to ${targetLangContext}.
+        let systemPrompt = `You are a professional translator specializing in software localization for Keeper Memorials, a digital memorial and tribute platform. Your task is to translate JSON key-value pairs from ${sourceLangContext} to ${targetLangContext}.
+
+DOMAIN CONTEXT:
+- This platform helps families create online memorial pages and share tributes for loved ones
+- Language should be compassionate, respectful, and dignified at all times
+- Common terms: memorial, tribute, service, remembrance, loved one, departed, honor, celebrate life
 
 CRITICAL RULES:
 1. NEVER translate content within double curly braces like {{name}}, {{count}}, etc.
@@ -97,6 +108,10 @@ CRITICAL RULES:
           '\n\nTranslate accurately while preserving the technical integrity and user experience intent.';
 
         // Make AI translation request
+        const contextSection = trimmedContext
+          ? `\n\nProject context (use this to guide tone & terminology):\n${trimmedContext}\n`
+          : '';
+
         const translationResult = await generateObject({
           model: openai('gpt-5'),
           schema: translationChunkSchema,
@@ -106,7 +121,7 @@ CRITICAL RULES:
               role: 'user',
               content: `Translate these ${
                 chunk.length
-              } key-value pairs from ${sourceLangContext} to ${targetLangContext}:
+              } key-value pairs from ${sourceLangContext} to ${targetLangContext}:${contextSection}
 
 ${chunk
   .map((item: ChunkData) => `Key: "${item.key}" | Value: "${item.value}"`)

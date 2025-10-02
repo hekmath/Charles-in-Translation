@@ -32,16 +32,15 @@ import {
   ArrowDown,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { isJsonObject, type JsonObject, type JsonValue } from '@/types/json';
+import { TranslationContextDialog } from '@/components/translation-context-dialog';
+import { useProject } from '@/context/project-context';
+import { useTranslation } from '@/context/translation-context';
+import { flattenJson } from '@/lib/json-utils';
 
 interface TranslationTableProps {
-  originalData: JsonObject;
-  translatedData: JsonObject;
   onEdit: (key: string, value: string) => Promise<void>;
-  onRetranslate: (keys: string[]) => Promise<void>;
+  onRetranslate: (keys: string[], context?: string) => Promise<void>;
   onRefresh?: () => Promise<void>;
-  sourceLanguage: string;
-  targetLanguage: string;
   isEditLoading?: boolean;
   isRetranslateLoading?: boolean;
   isRefreshLoading?: boolean;
@@ -61,17 +60,19 @@ type SortDirection = 'asc' | 'desc';
 type StatusFilter = 'all' | 'missing' | 'untranslated' | 'translated';
 
 export function TranslationTable({
-  originalData,
-  translatedData,
   onEdit,
   onRetranslate,
   onRefresh,
-  sourceLanguage,
-  targetLanguage,
   isEditLoading = false,
   isRetranslateLoading = false,
   isRefreshLoading = false,
 }: TranslationTableProps) {
+  const {
+    jsonData: originalData,
+    sourceLanguage,
+    targetLanguage,
+  } = useProject();
+  const { translatedData } = useTranslation();
   const [searchTerm, setSearchTerm] = useState('');
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [editValue, setEditValue] = useState('');
@@ -80,6 +81,30 @@ export function TranslationTable({
   );
   const [selectedForBulkRetranslation, setSelectedForBulkRetranslation] =
     useState<Set<string>>(new Set());
+  const [contextDialogOpen, setContextDialogOpen] = useState(false);
+  const [pendingRetranslateKeys, setPendingRetranslateKeys] = useState<
+    string[] | null
+  >(null);
+  const [previousContext, setPreviousContext] = useState('');
+
+  const dialogCopy = useMemo(() => {
+    const count = pendingRetranslateKeys?.length ?? 0;
+
+    if (count > 1) {
+      return {
+        title: 'Add context for retranslation',
+        description: `Share any background information or guidance for retranslating ${count} keys. Leave blank to reuse existing wording style.`,
+        confirmLabel: `Retranslate ${count} keys`,
+      };
+    }
+
+    return {
+      title: 'Add context for this key',
+      description:
+        'Provide optional hints, product notes, or tone guidance before re-running the translation for this key.',
+      confirmLabel: 'Retranslate key',
+    };
+  }, [pendingRetranslateKeys]);
 
   // Pagination state
   const [currentPage, setCurrentPage] = useState(1);
@@ -94,33 +119,12 @@ export function TranslationTable({
 
   // Flatten nested objects for table display
   const flattenedData = useMemo(() => {
-    const flattenObject = (
-      obj: JsonValue,
-      prefix = ''
-    ): Record<string, string> => {
-      const flattened: Record<string, string> = {};
+    if (!originalData || !translatedData) {
+      return [] as FlattenedItem[];
+    }
 
-      if (!isJsonObject(obj)) {
-        return flattened;
-      }
-
-      for (const [key, value] of Object.entries(obj) as Array<[
-        string,
-        JsonValue,
-      ]>) {
-        const fullKey = prefix ? `${prefix}.${key}` : key;
-        if (isJsonObject(value)) {
-          Object.assign(flattened, flattenObject(value, fullKey));
-        } else {
-          flattened[fullKey] = String(value);
-        }
-      }
-
-      return flattened;
-    };
-
-    const originalFlat = flattenObject(originalData);
-    const translatedFlat = flattenObject(translatedData);
+    const originalFlat = flattenJson(originalData);
+    const translatedFlat = flattenJson(translatedData);
 
     const items: FlattenedItem[] = Object.keys(originalFlat).map((key) => {
       const original = originalFlat[key] || '';
@@ -283,36 +287,47 @@ export function TranslationTable({
     setEditValue('');
   };
 
-  const handleRetranslate = async (key: string) => {
+  const handleRetranslate = (key: string) => {
     if (isRetranslateLoading) return;
 
-    setRetranslatingKeys((prev) => new Set([...prev, key]));
-    try {
-      await onRetranslate([key]);
-    } catch (error) {
-      console.error(`Failed to retranslate key ${key}:`, error);
-    } finally {
-      setRetranslatingKeys((prev) => {
-        const newSet = new Set(prev);
-        newSet.delete(key);
-        return newSet;
-      });
-    }
+    setPendingRetranslateKeys([key]);
+    setContextDialogOpen(true);
   };
 
-  const handleBulkRetranslate = async () => {
+  const handleBulkRetranslate = () => {
     if (selectedForBulkRetranslation.size === 0 || isRetranslateLoading) return;
 
-    const keys = Array.from(selectedForBulkRetranslation);
+    setPendingRetranslateKeys(Array.from(selectedForBulkRetranslation));
+    setContextDialogOpen(true);
+  };
+
+  const submitRetranslation = async ({
+    context,
+  }: {
+    context?: string;
+    cacheOption?: string;
+  }) => {
+    if (!pendingRetranslateKeys?.length) {
+      setContextDialogOpen(false);
+      setPendingRetranslateKeys(null);
+      return;
+    }
+
+    const keys = pendingRetranslateKeys;
+    setContextDialogOpen(false);
+    setPreviousContext(context ?? '');
     setRetranslatingKeys(new Set(keys));
 
     try {
-      await onRetranslate(keys);
-      setSelectedForBulkRetranslation(new Set());
+      await onRetranslate(keys, context);
+      if (keys.length > 1) {
+        setSelectedForBulkRetranslation(new Set());
+      }
     } catch (error) {
-      console.error('Failed to trigger bulk retranslation:', error);
+      console.error('Failed to retranslate keys:', error);
     } finally {
       setRetranslatingKeys(new Set());
+      setPendingRetranslateKeys(null);
     }
   };
 
@@ -388,6 +403,10 @@ export function TranslationTable({
         );
     }
   };
+
+  if (!originalData || !translatedData) {
+    return null;
+  }
 
   return (
     <Card className="overflow-hidden shadow-sm">
@@ -843,6 +862,25 @@ export function TranslationTable({
           </div>
         </div>
       )}
+      <TranslationContextDialog
+        open={contextDialogOpen}
+        onOpenChange={(open) => {
+          setContextDialogOpen(open);
+          if (!open) {
+            setPendingRetranslateKeys(null);
+          }
+        }}
+        onConfirm={submitRetranslation}
+        onCancel={() => {
+          setContextDialogOpen(false);
+          setPendingRetranslateKeys(null);
+        }}
+        title={dialogCopy.title}
+        description={dialogCopy.description}
+        confirmLabel={dialogCopy.confirmLabel}
+        defaultContext={previousContext}
+        isSubmitting={isRetranslateLoading}
+      />
     </Card>
   );
 }

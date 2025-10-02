@@ -7,6 +7,7 @@ import {
 } from '@/db/schema';
 import {
   type TranslationTask,
+  type Translation,
   type NewProject,
   type NewTranslationTask,
   type NewTranslation,
@@ -254,6 +255,7 @@ export class TranslationTasksService {
       completedChunks: task.completedChunks || 0,
       failedChunks: task.failedChunks || 0,
       estimatedTimeRemaining,
+      context: task.context ?? undefined,
       error: task.error ?? undefined,
       chunks: chunks.map((chunk) => ({
         index: chunk.chunkIndex,
@@ -416,48 +418,34 @@ export class TranslationsService {
       failed?: boolean;
     }
   ) {
-    // Check if translation already exists
-    const [existing] = await db
-      .select()
-      .from(translations)
-      .where(
-        and(
-          eq(translations.key, data.key),
-          eq(translations.sourceLanguage, data.sourceLanguage),
-          eq(translations.targetLanguage, data.targetLanguage),
-          eq(translations.projectId, data.projectId)
-        )
-      );
-
-    if (existing) {
-      // Update existing translation
-      const [updated] = await db
-        .update(translations)
-        .set({
+    // Use upsert with ON CONFLICT to avoid race conditions
+    const [result] = await db
+      .insert(translations)
+      .values({
+        ...data,
+        translatedAt: new Date(),
+        translatedBy: 'gpt-5',
+        failed: data.failed || false,
+      })
+      .onConflictDoUpdate({
+        target: [
+          translations.projectId,
+          translations.key,
+          translations.sourceLanguage,
+          translations.targetLanguage,
+        ],
+        set: {
           translatedText: data.translatedText,
           translatedAt: new Date(),
           taskId: data.taskId,
           chunkIndex: data.chunkIndex,
           failed: data.failed || false,
-        })
-        .where(eq(translations.id, existing.id))
-        .returning();
+          sourceText: data.sourceText,
+        },
+      })
+      .returning();
 
-      return updated;
-    } else {
-      // Create new translation
-      const [newTranslation] = await db
-        .insert(translations)
-        .values({
-          ...data,
-          translatedAt: new Date(),
-          translatedBy: 'gpt-5',
-          failed: data.failed || false,
-        })
-        .returning();
-
-      return newTranslation;
-    }
+    return result;
   }
 
   static async getCached(projectId: number, targetLanguage: string) {
@@ -478,6 +466,47 @@ export class TranslationsService {
       .select()
       .from(translations)
       .where(eq(translations.taskId, taskId));
+  }
+
+  static async getByKeys(
+    projectId: number,
+    targetLanguage: string,
+    keys: string[]
+  ) {
+    if (!keys.length) {
+      return [] as Translation[];
+    }
+
+    return await db
+      .select()
+      .from(translations)
+      .where(
+        and(
+          eq(translations.projectId, projectId),
+          eq(translations.targetLanguage, targetLanguage),
+          inArray(translations.key, keys)
+        )
+      );
+  }
+
+  static async getProjectIdsWithLanguage(
+    sourceLanguage: string,
+    targetLanguage: string
+  ) {
+    const rows = await db
+      .select({ projectId: translations.projectId })
+      .from(translations)
+      .where(
+        and(
+          eq(translations.sourceLanguage, sourceLanguage),
+          eq(translations.targetLanguage, targetLanguage),
+          eq(translations.failed, false)
+        )
+      )
+      .groupBy(translations.projectId)
+      .orderBy(asc(translations.projectId));
+
+    return rows.map((row) => row.projectId);
   }
 
   // Get translation statistics for a project

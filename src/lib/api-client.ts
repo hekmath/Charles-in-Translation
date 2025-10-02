@@ -27,6 +27,7 @@ interface CreateTranslationTaskRequest {
   projectId: number;
   targetLanguage: string;
   keys: string[];
+  context?: string;
 }
 
 interface UpdateTranslationTaskRequest {
@@ -153,6 +154,14 @@ export const translationsApi = {
       `/api/translations?projectId=${projectId}&targetLanguage=${targetLanguage}`
     ),
 
+  // GET /api/translations/cache-sources?sourceLanguage=X&targetLanguage=Y
+  getCacheSources: (sourceLanguage: string, targetLanguage: string) =>
+    apiRequest<{ projectIds: number[] }>(
+      `/api/translations/cache-sources?sourceLanguage=${encodeURIComponent(
+        sourceLanguage
+      )}&targetLanguage=${encodeURIComponent(targetLanguage)}`
+    ),
+
   // POST /api/translations
   save: (data: SaveTranslationRequest) =>
     apiRequest<Translation>('/api/translations', {
@@ -171,6 +180,9 @@ export const translateApi = {
     selectedKeys?: string[];
     projectId: number;
     taskId: number;
+    context?: string;
+    skipCache?: boolean;
+    cacheProjectId?: number;
   }) =>
     apiRequest('/api/translate', {
       method: 'POST',

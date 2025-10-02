@@ -31,10 +31,10 @@ export function useProjectState() {
   }, [currentProject, currentProjectId]);
 
   // Handle file upload
-  const handleFileUpload = async (data: JsonObject) => {
+  const handleFileUpload = async (name: string, data: JsonObject) => {
     try {
       const result = await createProjectMutation.mutateAsync({
-        name: `Project ${new Date().toLocaleDateString()}`,
+        name,
         description: `Uploaded JSON with ${
           Object.keys(data).length
         } top-level keys`,

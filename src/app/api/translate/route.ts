@@ -12,6 +12,9 @@ interface TranslateRequestBody {
   selectedKeys?: string[];
   projectId?: number | string;
   taskId?: number | string;
+  context?: string;
+  skipCache?: boolean;
+  cacheProjectId?: number | string;
 }
 
 const isStringArray = (value: unknown): value is string[] => {
@@ -30,6 +33,9 @@ const isTranslateRequestBody = (value: unknown): value is TranslateRequestBody =
     selectedKeys,
     projectId,
     taskId,
+    context,
+    skipCache,
+    cacheProjectId,
   } = value as Record<string, unknown>;
 
   if (!isJsonObject(data)) {
@@ -60,6 +66,22 @@ const isTranslateRequestBody = (value: unknown): value is TranslateRequestBody =
   }
 
   if (taskId !== undefined && typeof taskId !== 'string' && typeof taskId !== 'number') {
+    return false;
+  }
+
+  if (context !== undefined && typeof context !== 'string') {
+    return false;
+  }
+
+  if (skipCache !== undefined && typeof skipCache !== 'boolean') {
+    return false;
+  }
+
+  if (
+    cacheProjectId !== undefined &&
+    typeof cacheProjectId !== 'string' &&
+    typeof cacheProjectId !== 'number'
+  ) {
     return false;
   }
 
@@ -114,7 +136,15 @@ export async function POST(request: NextRequest) {
       selectedKeys,
       projectId,
       taskId,
+      context,
+      skipCache,
+      cacheProjectId,
     } = body;
+
+    const normalizedContext =
+      typeof context === 'string' && context.trim().length > 0
+        ? context.trim()
+        : undefined;
 
     // Parse and validate project ID
     const projectIdValue =
@@ -129,6 +159,31 @@ export async function POST(request: NextRequest) {
         {
           success: false,
           error: 'Missing or invalid project ID',
+        },
+        { status: 400 }
+      );
+    }
+
+    const normalizedSkipCache = Boolean(skipCache);
+
+    const cacheProjectIdValue =
+      cacheProjectId === undefined
+        ? projectIdValue
+        : typeof cacheProjectId === 'string'
+        ? Number.parseInt(cacheProjectId, 10)
+        : typeof cacheProjectId === 'number'
+        ? cacheProjectId
+        : null;
+
+    if (
+      cacheProjectIdValue === null ||
+      Number.isNaN(cacheProjectIdValue) ||
+      cacheProjectIdValue <= 0
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Invalid cache project ID',
         },
         { status: 400 }
       );
@@ -162,6 +217,35 @@ export async function POST(request: NextRequest) {
         },
         { status: 404 }
       );
+    }
+
+    // Resolve cache project (defaults to current project)
+    let cacheProject = project;
+    if (cacheProjectIdValue !== projectIdValue) {
+      const existingCacheProject = await dbService.projects.getById(
+        cacheProjectIdValue
+      );
+      if (!existingCacheProject) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: 'Cache project not found',
+          },
+          { status: 404 }
+        );
+      }
+      cacheProject = existingCacheProject;
+
+      if (cacheProject.sourceLanguage !== project.sourceLanguage) {
+        return NextResponse.json(
+          {
+            success: false,
+            error:
+              'Cache project must share the same source language as the current project',
+          },
+          { status: 400 }
+        );
+      }
     }
 
     // Verify task exists
@@ -250,6 +334,9 @@ export async function POST(request: NextRequest) {
         sourceLanguage,
         targetLanguage,
         selectedKeys,
+        context: normalizedContext,
+        skipCache: normalizedSkipCache,
+        cacheProjectId: cacheProjectIdValue,
       },
     });
 
@@ -275,6 +362,10 @@ export async function POST(request: NextRequest) {
         isRTL: targetLanguageInfo.rtl || false,
         chunkingStrategy: 'parallel-chunks', // Indicate new chunking approach
         maxChunkSize: 25, // Document the chunk size
+        hasContext: Boolean(normalizedContext),
+        skipCache: normalizedSkipCache,
+        cacheProjectId: cacheProjectIdValue,
+        cacheProjectName: cacheProject.name,
       },
     });
   } catch (error) {

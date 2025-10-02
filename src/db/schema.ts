@@ -7,6 +7,7 @@ import {
   integer,
   boolean,
   pgEnum,
+  unique,
 } from 'drizzle-orm/pg-core';
 import { relations } from 'drizzle-orm';
 import type { JsonObject } from '@/types/json';
@@ -50,6 +51,7 @@ export const translationTasks = pgTable('translation_tasks', {
   translatedData: json('translated_data').$type<JsonObject>(),
   error: text('error'),
   batchId: text('batch_id'),
+  context: text('context'),
 
   // Enhanced progress tracking fields
   totalKeys: integer('total_keys').default(0).notNull(),
@@ -92,25 +94,37 @@ export const translationChunks = pgTable('translation_chunks', {
 });
 
 // Enhanced Translations table with chunk tracking
-export const translations = pgTable('translations', {
-  id: serial('id').primaryKey(),
-  projectId: integer('project_id')
-    .references(() => projects.id)
-    .notNull(),
-  key: text('key').notNull(),
-  sourceText: text('source_text').notNull(),
-  translatedText: text('translated_text').notNull(),
-  sourceLanguage: text('source_language').notNull(),
-  targetLanguage: text('target_language').notNull(),
+export const translations = pgTable(
+  'translations',
+  {
+    id: serial('id').primaryKey(),
+    projectId: integer('project_id')
+      .references(() => projects.id)
+      .notNull(),
+    key: text('key').notNull(),
+    sourceText: text('source_text').notNull(),
+    translatedText: text('translated_text').notNull(),
+    sourceLanguage: text('source_language').notNull(),
+    targetLanguage: text('target_language').notNull(),
 
-  // Enhanced tracking
-  taskId: integer('task_id').references(() => translationTasks.id),
-  chunkIndex: integer('chunk_index'),
-  failed: boolean('failed').default(false).notNull(),
+    // Enhanced tracking
+    taskId: integer('task_id').references(() => translationTasks.id),
+    chunkIndex: integer('chunk_index'),
+    failed: boolean('failed').default(false).notNull(),
 
-  translatedAt: timestamp('translated_at').defaultNow().notNull(),
-  translatedBy: text('translated_by').default('gpt-4o-mini'),
-});
+    translatedAt: timestamp('translated_at').defaultNow().notNull(),
+    translatedBy: text('translated_by').default('gpt-5'),
+  },
+  (table) => ({
+    // Unique constraint: one translation per project+key+source+target combination
+    uniqueTranslation: unique('unique_translation').on(
+      table.projectId,
+      table.key,
+      table.sourceLanguage,
+      table.targetLanguage
+    ),
+  })
+);
 
 // Users table (for future auth)
 export const users = pgTable('users', {

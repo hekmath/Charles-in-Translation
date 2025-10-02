@@ -16,20 +16,15 @@ import {
   getLanguageByCode,
   type Language,
 } from '@/lib/constants/languages';
+import { useProject } from '@/context/project-context';
 
-interface LanguageSelectorProps {
-  sourceLanguage: string;
-  targetLanguage: string;
-  onSourceChange: (language: string) => void;
-  onTargetChange: (language: string) => void;
-}
-
-export function LanguageSelector({
-  sourceLanguage,
-  targetLanguage,
-  onSourceChange,
-  onTargetChange,
-}: LanguageSelectorProps) {
+export function LanguageSelector() {
+  const {
+    sourceLanguage,
+    setSourceLanguage,
+    targetLanguage,
+    setTargetLanguage,
+  } = useProject();
   const getLanguageInfo = (code: string): Language => {
     return (
       getLanguageByCode(code) || {
@@ -195,7 +190,7 @@ export function LanguageSelector({
         <span className="text-sm font-medium text-muted-foreground">From:</span>
         <LanguageDropdown
           value={sourceLanguage}
-          onChange={onSourceChange}
+          onChange={setSourceLanguage}
           placeholder="Source"
           disabledValue={targetLanguage}
         />
@@ -223,7 +218,7 @@ export function LanguageSelector({
         <span className="text-sm font-medium text-muted-foreground">To:</span>
         <LanguageDropdown
           value={targetLanguage}
-          onChange={onTargetChange}
+          onChange={setTargetLanguage}
           placeholder="Target"
           variant="secondary"
           disabledValue={sourceLanguage}

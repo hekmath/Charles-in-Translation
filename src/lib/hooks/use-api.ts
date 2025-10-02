@@ -129,6 +129,7 @@ export function useCreateTranslationTask() {
       projectId: number;
       targetLanguage: string;
       keys: string[];
+      context?: string;
     }) => {
       const response = await apiClient.translationTasks.create(data);
       if (!response.success || !response.data) {
@@ -300,6 +301,32 @@ export function useCachedTranslations(
   });
 }
 
+export function useTranslationCacheSources(
+  sourceLanguage: string | null,
+  targetLanguage: string | null
+) {
+  return useQuery({
+    queryKey: [
+      'translationCacheSources',
+      sourceLanguage,
+      targetLanguage,
+    ],
+    queryFn: async () => {
+      const response = await apiClient.translations.getCacheSources(
+        sourceLanguage!,
+        targetLanguage!
+      );
+
+      if (!response.success || !response.data) {
+        throw new Error(response.error || 'Failed to fetch cache sources');
+      }
+
+      return response.data.projectIds;
+    },
+    enabled: Boolean(sourceLanguage && targetLanguage),
+  });
+}
+
 // Enhanced Save Translation Hook with immediate cache updates
 export function useSaveTranslation() {
   const queryClient = useQueryClient();
@@ -433,6 +460,9 @@ export function useTranslate() {
       selectedKeys?: string[];
       projectId: number;
       taskId: number;
+      context?: string;
+      skipCache?: boolean;
+      cacheProjectId?: number;
     }) => {
       const response = await apiClient.translate.translate(data);
       if (!response.success) {
@@ -475,12 +505,14 @@ export function useRetranslate() {
       targetLanguage: string;
       keys: string[];
       originalData: JsonObject;
+      context?: string;
     }) => {
       // Create a new translation task for retranslation
       const task = await createTaskMutation.mutateAsync({
         projectId: data.projectId,
         targetLanguage: data.targetLanguage,
         keys: data.keys,
+        context: data.context,
       });
 
       // Start the translation
@@ -491,6 +523,8 @@ export function useRetranslate() {
         targetLanguage: data.targetLanguage,
         selectedKeys: data.keys,
         taskId: task.id,
+        context: data.context,
+        skipCache: true,
       });
 
       return { taskId: task.id };

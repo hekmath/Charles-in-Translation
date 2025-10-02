@@ -1,0 +1,2 @@
+ALTER TABLE "translations" ALTER COLUMN "translated_by" SET DEFAULT 'gpt-5';--> statement-breakpoint
+ALTER TABLE "translations" ADD CONSTRAINT "unique_translation" UNIQUE("project_id","key","source_language","target_language");

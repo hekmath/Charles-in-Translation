@@ -2,19 +2,10 @@
 
 'use client';
 
-import type { Project } from '@/db/types';
+import { useProject } from '@/context/project-context';
 
-interface ProjectHeaderProps {
-  currentProject: Project | undefined;
-  sourceLanguage: string;
-  targetLanguage: string;
-}
-
-export function ProjectHeader({
-  currentProject,
-  sourceLanguage,
-  targetLanguage,
-}: ProjectHeaderProps) {
+export function ProjectHeader() {
+  const { currentProject, sourceLanguage, targetLanguage } = useProject();
   return (
     <div className="bg-card border border-border/50 rounded-2xl p-6 shadow-sm">
       <div className="flex items-center justify-between">

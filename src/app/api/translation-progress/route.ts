@@ -113,6 +113,7 @@ export async function GET(request: NextRequest) {
       completedChunks: progress.completedChunks,
       failedChunks: progress.failedChunks,
       estimatedTimeRemaining: progress.estimatedTimeRemaining,
+      context: progress.context,
       error: progress.error,
       startedAt: progress.startedAt,
       completedAt: progress.completedAt,

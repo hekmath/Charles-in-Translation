@@ -1,31 +1,190 @@
 'use client';
 
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { TranslationContextDialog } from '@/components/translation-context-dialog';
+import { useTranslationCacheSources } from '@/lib/hooks/use-api';
+import { useProject } from '@/context/project-context';
+import { useTranslation } from '@/context/translation-context';
 
-interface TranslationControlsProps {
-  hasData: boolean;
-  hasTranslation: boolean;
-  isTranslating: boolean;
-  selectedKeysCount: number;
-  onTranslateAll: () => void;
-  onTranslateSelected: () => void;
-  onNewFile: () => void;
-  disabled: boolean;
-}
+export function TranslationControls() {
+  const {
+    jsonData,
+    projects,
+    currentProjectId,
+    sourceLanguage,
+    targetLanguage,
+    resetProjectState,
+    isCreatingProject,
+  } = useProject();
+  const {
+    translatedData,
+    isTranslating,
+    selectedKeys,
+    handleTranslation,
+    resetTranslationState,
+  } = useTranslation();
 
-export function TranslationControls({
-  hasData,
-  hasTranslation,
-  isTranslating,
-  selectedKeysCount,
-  onTranslateAll,
-  onTranslateSelected,
-  onNewFile,
-  disabled,
-}: TranslationControlsProps) {
+  const hasData = Boolean(jsonData);
+  const hasTranslation = Boolean(translatedData);
+  const selectedKeysCount = selectedKeys.length;
+  const disabled = !targetLanguage || isCreatingProject;
+  const [contextDialogOpen, setContextDialogOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<'all' | 'selected' | null>(
+    null
+  );
+  const [previousContext, setPreviousContext] = useState('');
+  const [selectedCacheOption, setSelectedCacheOption] = useState(
+    currentProjectId ? 'current' : 'none'
+  );
+
+  const { data: cacheProjectIds = [] } = useTranslationCacheSources(
+    sourceLanguage,
+    targetLanguage
+  );
+
+  useEffect(() => {
+    if (!currentProjectId) {
+      setSelectedCacheOption('none');
+    }
+  }, [currentProjectId]);
+
+  const dialogCopy = useMemo(() => {
+    if (pendingAction === 'selected') {
+      return {
+        title: 'Add context for selected keys',
+        description:
+          'Share any notes the translator should consider while reworking the selected keys. Leave blank if none.',
+        confirmLabel: 'Translate selected keys',
+      };
+    }
+
+    return {
+      title: 'Add translation context',
+      description:
+        'Provide optional product notes, tone guidance, or glossary hints before translating the entire file.',
+      confirmLabel: 'Translate all keys',
+    };
+  }, [pendingAction]);
+
+  const cacheOptions = useMemo(() => {
+    const options: Array<{ value: string; label: string }> = [
+      { value: 'none', label: 'Do not use cache' },
+    ];
+
+    if (currentProjectId) {
+      options.push({
+        value: 'current',
+        label: `Use current project cache (${sourceLanguage.toUpperCase()} → ${targetLanguage.toUpperCase()})`,
+      });
+    }
+
+    const cacheProjectSet = new Set(cacheProjectIds);
+
+    const compatibleProjects = projects.filter(
+      (project) =>
+        project.id !== currentProjectId &&
+        project.sourceLanguage === sourceLanguage &&
+        cacheProjectSet.has(project.id)
+    );
+
+    compatibleProjects.forEach((project) => {
+      options.push({
+        value: `project-${project.id}`,
+        label: `${project.name} (${project.sourceLanguage.toUpperCase()} → ${targetLanguage.toUpperCase()})`,
+      });
+    });
+
+    return options;
+  }, [
+    projects,
+    currentProjectId,
+    sourceLanguage,
+    targetLanguage,
+    cacheProjectIds,
+  ]);
+
+  useEffect(() => {
+    const optionValues = cacheOptions.map((option) => option.value);
+    if (!optionValues.includes(selectedCacheOption)) {
+      setSelectedCacheOption(optionValues[0] ?? 'none');
+    }
+  }, [cacheOptions, selectedCacheOption]);
+
+  const interpretCacheSelection = (option: string | undefined) => {
+    if (!option || option === 'none') {
+      return { skipCache: true } as const;
+    }
+
+    if (option === 'current') {
+      return {
+        skipCache: false,
+        cacheProjectId: currentProjectId ?? undefined,
+      } as const;
+    }
+
+    if (option.startsWith('project-')) {
+      const projectId = Number(option.split('-')[1]);
+      if (Number.isFinite(projectId)) {
+        return {
+          skipCache: false,
+          cacheProjectId: projectId,
+        } as const;
+      }
+    }
+
+    return { skipCache: true } as const;
+  };
+
+  const closeDialog = () => {
+    setContextDialogOpen(false);
+    setPendingAction(null);
+  };
+
+  const openDialog = (action: 'all' | 'selected') => {
+    setPendingAction(action);
+    setContextDialogOpen(true);
+  };
+
+  const handleConfirm = ({
+    context,
+    cacheOption,
+  }: {
+    context?: string;
+    cacheOption?: string;
+  }) => {
+    if (pendingAction === 'selected') {
+      handleTranslation({
+        context,
+        skipCache: true,
+        keys: selectedKeys,
+      });
+    } else if (pendingAction === 'all') {
+      const effectiveOption = cacheOption ?? selectedCacheOption;
+      setSelectedCacheOption(effectiveOption);
+
+      const cacheSelection = interpretCacheSelection(effectiveOption);
+
+      handleTranslation({
+        context,
+        cacheProjectId: cacheSelection.cacheProjectId,
+        skipCache: cacheSelection.skipCache,
+      });
+    }
+
+    setPreviousContext(context ?? '');
+    if (pendingAction === 'selected' && currentProjectId) {
+      setSelectedCacheOption('current');
+    }
+    closeDialog();
+  };
+
   if (!hasData) return null;
+
+  const dialogCacheOptions =
+    pendingAction === 'selected' ? undefined : cacheOptions;
 
   return (
     <Card className="p-6 bg-gradient-to-r from-card to-muted/30 border-border/50">
@@ -67,7 +226,7 @@ export function TranslationControls({
         <div className="flex items-center space-x-3">
           {selectedKeysCount > 0 && (
             <Button
-              onClick={onTranslateSelected}
+              onClick={() => openDialog('selected')}
               disabled={disabled || isTranslating}
               variant="secondary"
               className="font-medium shadow-sm hover:shadow-md transition-all duration-200"
@@ -99,7 +258,7 @@ export function TranslationControls({
           )}
 
           <Button
-            onClick={onTranslateAll}
+            onClick={() => openDialog('all')}
             disabled={disabled || isTranslating}
             className="font-medium shadow-sm hover:shadow-md transition-all duration-200"
           >
@@ -129,7 +288,10 @@ export function TranslationControls({
           </Button>
 
           <Button
-            onClick={onNewFile}
+            onClick={() => {
+              resetProjectState();
+              resetTranslationState();
+            }}
             variant="outline"
             className="font-medium shadow-sm hover:shadow-md transition-all duration-200 bg-transparent"
           >
@@ -173,6 +335,26 @@ export function TranslationControls({
           </div>
         </div>
       )}
+
+      <TranslationContextDialog
+        open={contextDialogOpen}
+        onOpenChange={(open) => {
+          setContextDialogOpen(open);
+          if (!open) {
+            setPendingAction(null);
+          }
+        }}
+        onConfirm={handleConfirm}
+        onCancel={closeDialog}
+        title={dialogCopy.title}
+        description={dialogCopy.description}
+        confirmLabel={dialogCopy.confirmLabel}
+        defaultContext={previousContext}
+        isSubmitting={isTranslating}
+        cacheOptions={dialogCacheOptions}
+        selectedCacheOption={selectedCacheOption}
+        onCacheOptionChange={setSelectedCacheOption}
+      />
     </Card>
   );
 }

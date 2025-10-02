@@ -19,22 +19,16 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Badge } from '@/components/ui/badge';
 import { useDeleteProject } from '@/lib/hooks/use-api';
-import type { Project } from '@/db/types';
-import { isJsonObject, type JsonObject, type JsonValue } from '@/types/json';
+import { useProject } from '@/context/project-context';
+import { countJsonLeaves } from '@/lib/json-utils';
 
-interface ProjectSelectorProps {
-  projects: Project[];
-  currentProjectId: number | null;
-  onProjectChange: (projectId: number | null) => void;
-  isLoading?: boolean;
-}
-
-export function ProjectSelector({
-  projects,
-  currentProjectId,
-  onProjectChange,
-  isLoading = false,
-}: ProjectSelectorProps) {
+export function ProjectSelector() {
+  const {
+    projects,
+    currentProjectId,
+    setCurrentProjectId,
+    projectsLoading,
+  } = useProject();
   const deleteProjectMutation = useDeleteProject();
 
   const currentProject = projects.find((p) => p.id === currentProjectId);
@@ -55,7 +49,7 @@ export function ProjectSelector({
 
         // If we're deleting the current project, clear selection
         if (projectId === currentProjectId) {
-          onProjectChange(null);
+          setCurrentProjectId(null);
         }
       } catch (error) {
         // Error handling is done in the mutation hook
@@ -75,30 +69,16 @@ export function ProjectSelector({
     }).format(date);
   };
 
-  const getKeyCount = (data: JsonObject): number => {
-    const countKeys = (value: JsonValue): number => {
-      if (isJsonObject(value)) {
-        return Object.values(value).reduce<number>(
-          (acc, nested) => acc + countKeys(nested),
-          0
-        );
-      }
-      return 1;
-    };
-
-    return countKeys(data);
-  };
-
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
         <Button
           variant="outline"
           className="h-10 px-3 justify-between min-w-[200px] font-medium bg-transparent shadow-sm hover:shadow-md transition-all duration-200"
-          disabled={isLoading}
+          disabled={projectsLoading}
         >
           <div className="flex items-center space-x-2">
-            {isLoading ? (
+            {projectsLoading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : (
               <FolderOpen className="w-4 h-4" />
@@ -125,7 +105,7 @@ export function ProjectSelector({
         <DropdownMenuItem
           className="flex items-center space-x-3 p-3 cursor-pointer bg-gradient-to-r from-primary/5 to-secondary/5 hover:from-primary/10 hover:to-secondary/10 border border-primary/20 rounded-lg m-2"
           onClick={() => {
-            onProjectChange(null);
+            setCurrentProjectId(null);
           }}
         >
           <div className="w-8 h-8 bg-gradient-to-br from-primary to-secondary rounded-lg flex items-center justify-center shadow-sm">
@@ -142,7 +122,7 @@ export function ProjectSelector({
         <DropdownMenuSeparator />
 
         {/* Loading state */}
-        {isLoading && (
+        {projectsLoading && (
           <div className="p-6 text-center text-muted-foreground">
             <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center mx-auto mb-3">
               <Loader2 className="w-6 h-6 animate-spin" />
@@ -153,7 +133,7 @@ export function ProjectSelector({
         )}
 
         {/* No projects state */}
-        {!isLoading && projects.length === 0 && (
+        {!projectsLoading && projects.length === 0 && (
           <div className="p-6 text-center text-muted-foreground">
             <div className="w-12 h-12 bg-muted rounded-xl flex items-center justify-center mx-auto mb-3">
               <FileText className="w-6 h-6" />
@@ -164,7 +144,7 @@ export function ProjectSelector({
         )}
 
         {/* Existing projects */}
-        {!isLoading &&
+        {!projectsLoading &&
           projects.map((project) => (
             <DropdownMenuItem
               key={project.id}
@@ -176,7 +156,7 @@ export function ProjectSelector({
                   : 'hover:bg-muted/50'
               }
             `}
-              onClick={() => onProjectChange(project.id)}
+              onClick={() => setCurrentProjectId(project.id)}
             >
               <div className="w-8 h-8 bg-card border border-border rounded-lg flex items-center justify-center shadow-sm">
                 <FileText className="w-4 h-4 text-muted-foreground" />
@@ -193,7 +173,7 @@ export function ProjectSelector({
 
                   <span>•</span>
 
-                  <span>{getKeyCount(project.originalData)} keys</span>
+                  <span>{countJsonLeaves(project.originalData)} keys</span>
 
                   <span>•</span>
 

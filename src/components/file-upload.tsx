@@ -8,7 +8,7 @@ import { toast } from 'sonner';
 import { isJsonObject, type JsonObject } from '@/types/json';
 
 interface FileUploadProps {
-  onUpload: (data: JsonObject) => void;
+  onUpload: (data: JsonObject) => void | Promise<void>;
   isLoading?: boolean;
 }
 
@@ -28,7 +28,7 @@ export function FileUpload({ onUpload, isLoading = false }: FileUploadProps) {
         if (!isJsonObject(data)) {
           throw new Error('Parsed JSON is not an object');
         }
-        onUpload(data);
+        await onUpload(data);
       } catch (error) {
         console.error('Failed to parse JSON:', error);
         toast.error('Invalid JSON file. Please check your file format.');
